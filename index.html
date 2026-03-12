@@ -114,6 +114,12 @@
     min-width: 0;
   }
   #apikey-bar input:focus { outline: 1px solid var(--gold); }
+  #apikey-saved {
+    font-size: 0.7rem;
+    color: #8a6040;
+    padding: 0.3rem 0;
+  }
+  #apikey-saved a { color: var(--gold); cursor: pointer; text-decoration: underline; }
 
   /* Main columns */
   #columns {
@@ -257,6 +263,9 @@
     <label for="apikey-input">Anthropic API Key:</label>
     <input id="apikey-input" type="password" placeholder="sk-ant-…" autocomplete="off">
   </div>
+  <div id="apikey-saved" style="display:none">
+    API ключ сохранён. <a id="apikey-change">Изменить</a>
+  </div>
 
   <div id="upload-zone">
     <div class="icon">📄</div>
@@ -332,9 +341,35 @@ let lastResult = null;
 
 // Persist API key in localStorage
 const apikeyInput = document.getElementById('apikey-input');
+const apikeyBar = document.getElementById('apikey-bar');
+const apikeySaved = document.getElementById('apikey-saved');
 const STORAGE_KEY = 'gothic_reader_apikey';
-apikeyInput.value = localStorage.getItem(STORAGE_KEY) || '';
-apikeyInput.addEventListener('input', () => localStorage.setItem(STORAGE_KEY, apikeyInput.value.trim()));
+
+function updateApikeyUI() {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) {
+    apikeyInput.value = saved;
+    apikeyBar.style.display = 'none';
+    apikeySaved.style.display = 'block';
+  } else {
+    apikeyBar.style.display = 'flex';
+    apikeySaved.style.display = 'none';
+  }
+}
+
+apikeyInput.addEventListener('change', () => {
+  const val = apikeyInput.value.trim();
+  if (val) { localStorage.setItem(STORAGE_KEY, val); updateApikeyUI(); }
+});
+
+document.getElementById('apikey-change').addEventListener('click', () => {
+  apikeyBar.style.display = 'flex';
+  apikeySaved.style.display = 'none';
+  apikeyInput.value = localStorage.getItem(STORAGE_KEY) || '';
+  apikeyInput.focus();
+});
+
+updateApikeyUI();
 
 // Upload zone
 const zone = document.getElementById('upload-zone');
