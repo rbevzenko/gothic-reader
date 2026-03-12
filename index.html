@@ -561,24 +561,28 @@ async function loadFromUrl(url) {
   };
   img.src = fullUrl;
 
-  // 3. Fetch OCR text (v1 API — confirmed working)
+  // 3. Fetch OCR text (v1 API)
+  const dbg = [];
   let ocrText = null;
   try {
     const ocrUrl = `https://dlc.mpg.de/api/v1/records/${id}/files/plaintext/${page}.xml`;
+    dbg.push(`fetch ${ocrUrl.slice(-30)}`);
     const resp = await fetch(ocrUrl);
+    dbg.push(`status=${resp.status}`);
     if (resp.ok) {
       const xml = await resp.text();
-      // Use regex stripping instead of DOMParser (avoids namespace/encoding failures)
+      dbg.push(`xmlLen=${xml.length}`);
       if (!xml.trim().toLowerCase().startsWith('<!doctype html') && !xml.trim().startsWith('<html')) {
         const text = xml
           .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, ' ')
           .replace(/<[^>]+>/g, ' ')
           .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
           .replace(/\s+/g, ' ').trim();
+        dbg.push(`textLen=${text.length}`);
         if (text.length > 50) ocrText = text;
-      }
+      } else { dbg.push('html-response'); }
     }
-  } catch (_) {}
+  } catch (e) { dbg.push(`err=${e.message}`); }
 
   loading.style.display = 'none';
 
@@ -588,12 +592,15 @@ async function loadFromUrl(url) {
     // OCR unavailable — try Canvas extraction for Vision
     let imgData = null;
     for (const tryUrl of [fullUrl, thumbUrl]) {
-      try { imgData = await getImageViaCanvas(tryUrl); break; } catch (_) {}
+      try { imgData = await getImageViaCanvas(tryUrl); dbg.push('canvas=ok'); break; }
+      catch (e) { dbg.push(`canvas=${e.message}`); }
     }
     if (imgData) {
       translate(imgData.b64, imgData.type);
     } else {
-      showTranslateError(new Error('OCR-текст для этой страницы недоступен, а загрузить изображение не удалось из-за ограничений браузера.<br>Пожалуйста, сделайте скриншот страницы (Win+Shift+S или Cmd+Shift+4) и загрузите его вручную.'));
+      showTranslateError(new Error(
+        `Не удалось получить данные страницы.<br><small style="opacity:.7">[${dbg.join(' · ')}]</small><br><br>Пожалуйста, сделайте скриншот страницы (Win+Shift+S или Cmd+Shift+4) и загрузите его вручную.`
+      ));
     }
   }
 }
