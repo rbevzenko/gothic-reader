@@ -458,7 +458,7 @@ function parseDlcUrl(url) {
 }
 
 // Fetch IIIF manifest and return image URLs for a given page (1-based)
-// Returns { fullUrl, thumbUrl } where fullUrl may be null
+// Returns { fullUrl, thumbUrl }
 async function getImageUrlsFromManifest(id, pageNum) {
   const resp = await fetch(`https://dlc.mpg.de/api/v2/records/${id}/manifest/`);
   if (!resp.ok) return null;
@@ -470,27 +470,40 @@ async function getImageUrlsFromManifest(id, pageNum) {
   if (canvases?.[idx]) {
     const resource = canvases[idx]?.images?.[0]?.resource;
     const svcId = resource?.service?.['@id'] || resource?.service?.[0]?.['@id'];
-    if (svcId) return { fullUrl: `${svcId}/full/max/0/default.jpg`, thumbUrl: `${svcId}/full/!400,400/0/default.jpg` };
+    if (svcId) return {
+      fullUrl: `${svcId}/full/!1500,2000/0/default.jpg`,
+      thumbUrl: `${svcId}/full/!400,400/0/default.jpg`
+    };
   }
 
   // IIIF Presentation v3
   const items = manifest?.items;
   if (items?.[idx]) {
     const body = items[idx]?.items?.[0]?.items?.[0]?.body;
+    const thumbUrl = body?.id; // known-good URL from manifest
     const svc = body?.service?.[0];
     const svcId = svc?.['@id'] || svc?.id;
-    if (svcId) return { fullUrl: `${svcId}/full/max/0/default.jpg`, thumbUrl: body?.id || `${svcId}/full/!400,400/0/default.jpg` };
-    if (body?.id) return { fullUrl: null, thumbUrl: body.id };
+    if (svcId) return {
+      fullUrl: `${svcId}/full/!1500,2000/0/default.jpg`,
+      thumbUrl: thumbUrl || `${svcId}/full/!400,400/0/default.jpg`
+    };
+    if (thumbUrl) return { fullUrl: null, thumbUrl };
   }
 
   return null;
 }
 
 // Fetch image via browser fetch() and return { dataUrl, b64, type }
+// Throws if the response is not a supported image format (e.g. TIFF, HTML)
 async function fetchImageAsBase64(url) {
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
   const blob = await resp.blob();
+  const ct = blob.type || '';
+  if (ct.includes('tiff') || ct.includes('html') || ct.includes('xml')) {
+    throw new Error(`Unsupported format: ${ct}`);
+  }
+  if (!ct.startsWith('image/')) throw new Error(`Not an image: ${ct}`);
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -542,8 +555,8 @@ async function loadFromUrl(url) {
   // 1. Get image URLs from IIIF manifest
   let urls = null;
   try { urls = await getImageUrlsFromManifest(id, pageNum); } catch (_) {}
-  const fullUrl = urls?.fullUrl || `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/max/0/default.jpg`;
-  const thumbUrl = urls?.thumbUrl || fullUrl;
+  const fullUrl = urls?.fullUrl || `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!1500,2000/0/default.jpg`;
+  const thumbUrl = urls?.thumbUrl || `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!400,400/0/default.jpg`;
 
   // 2. Fetch image as blob (IIIF requires CORS support)
   let imgData = null;
