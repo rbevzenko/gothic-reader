@@ -493,30 +493,23 @@ async function getImageUrlsFromManifest(id, pageNum) {
   return null;
 }
 
-// Fetch image via browser fetch() and return { dataUrl, b64, type }
-// Throws if the response is not a supported image format (e.g. TIFF, HTML)
-async function fetchImageAsBase64(url) {
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
-  const blob = await resp.blob();
-  const ct = blob.type || '';
-  if (ct.includes('tiff') || ct.includes('html') || ct.includes('xml')) {
-    throw new Error(`Unsupported format: ${ct}`);
-  }
-  if (!ct.startsWith('image/')) throw new Error(`Not an image: ${ct}`);
+// Extract image via Canvas (works when server sends CORS headers on images)
+async function getImageViaCanvas(url) {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result;
-      const match = dataUrl.match(/^data:(image\/[a-z+]+);base64,/);
-      resolve({
-        dataUrl,
-        type: match ? match[1] : 'image/jpeg',
-        b64: dataUrl.slice(dataUrl.indexOf(',') + 1)
-      });
+    const el = new Image();
+    el.crossOrigin = 'anonymous';
+    el.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = el.naturalWidth;
+        canvas.height = el.naturalHeight;
+        canvas.getContext('2d').drawImage(el, 0, 0);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        resolve({ dataUrl, type: 'image/jpeg', b64: dataUrl.slice(dataUrl.indexOf(',') + 1) });
+      } catch (e) { reject(e); }
     };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
+    el.onerror = () => reject(new Error('load failed'));
+    el.src = url;
   });
 }
 
@@ -558,30 +551,18 @@ async function loadFromUrl(url) {
   const fullUrl = urls?.fullUrl || `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!1500,2000/0/default.jpg`;
   const thumbUrl = urls?.thumbUrl || `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!400,400/0/default.jpg`;
 
-  // 2. Fetch image as blob (IIIF requires CORS support)
-  let imgData = null;
-  for (const tryUrl of [fullUrl, thumbUrl]) {
-    try {
-      imgData = await fetchImageAsBase64(tryUrl);
-      break;
-    } catch (_) {}
-  }
+  // 2. Display image directly — <img src> works cross-origin without CORS
+  img.src = fullUrl;
+  img.style.display = 'block';
+  img.onerror = () => { img.src = thumbUrl; }; // fallback to thumbnail
+  origEmpty.style.display = 'none';
 
-  if (imgData) {
-    img.src = imgData.dataUrl;
-    img.style.display = 'block';
-    origEmpty.style.display = 'none';
-  } else {
-    origEmpty.textContent = 'Не удалось загрузить изображение';
-  }
-
-  // 3. Try OCR text first; validate strictly
+  // 3. Fetch OCR text (v1 API — confirmed working)
   let ocrText = null;
   try {
-    const ocrUrl = `https://dlc.mpg.de/api/v2/records/${id}/files/plaintext/${page}.xml`;
+    const ocrUrl = `https://dlc.mpg.de/api/v1/records/${id}/files/plaintext/${page}.xml`;
     const resp = await fetch(ocrUrl);
-    const ct = resp.headers.get('content-type') || '';
-    if (resp.ok && (ct.includes('xml') || ct.includes('text/plain'))) {
+    if (resp.ok) {
       const xml = await resp.text();
       if (!xml.trim().startsWith('<html') && !xml.includes('<!DOCTYPE html')) {
         const doc = new DOMParser().parseFromString(xml, 'text/xml');
@@ -593,15 +574,21 @@ async function loadFromUrl(url) {
     }
   } catch (_) {}
 
-  loading.style.display = 'none'; // let translate functions show their own spinner
+  loading.style.display = 'none';
 
   if (ocrText) {
     translateText(ocrText);
-  } else if (imgData) {
-    // Pass base64 to Claude Vision (reliable, no server-side download needed)
-    translate(imgData.b64, imgData.type);
   } else {
-    showTranslateError(new Error('Не удалось загрузить изображение. Проверьте ссылку или загрузите скриншот вручную.'));
+    // OCR unavailable — try Canvas extraction for Vision
+    let imgData = null;
+    for (const tryUrl of [fullUrl, thumbUrl]) {
+      try { imgData = await getImageViaCanvas(tryUrl); break; } catch (_) {}
+    }
+    if (imgData) {
+      translate(imgData.b64, imgData.type);
+    } else {
+      showTranslateError(new Error('OCR-текст для этой страницы недоступен, а загрузить изображение не удалось из-за ограничений браузера.<br>Пожалуйста, сделайте скриншот страницы (Win+Shift+S или Cmd+Shift+4) и загрузите его вручную.'));
+    }
   }
 }
 
