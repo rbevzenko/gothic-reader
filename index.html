@@ -478,10 +478,11 @@ async function getImageUrlFromManifest(id, pageNum) {
   const items = manifest?.items;
   if (items?.[idx]) {
     const body = items[idx]?.items?.[0]?.items?.[0]?.body;
-    if (body?.id && /\.(jpg|jpeg|png|webp)/i.test(body.id)) return body.id;
+    // Prefer service URL for full resolution (body.id is typically a thumbnail)
     const svc = body?.service?.[0];
     const svcId = svc?.['@id'] || svc?.id;
     if (svcId) return `${svcId}/full/full/0/default.jpg`;
+    if (body?.id) return body.id;
   }
 
   return null;
@@ -517,7 +518,7 @@ async function loadFromUrl(url) {
   } catch (_) {}
   // Fallback: try IIIF path directly
   if (!imageUrl) {
-    imageUrl = `https://dlc.mpg.de/api/v1/records/${id}/files/images/${page}.tif/full/full/0/default.jpg`;
+    imageUrl = `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/full/0/default.jpg`;
   }
   img.src = imageUrl;
   img.style.display = 'block';
