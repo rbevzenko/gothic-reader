@@ -421,7 +421,11 @@ async function translate(b64, type) {
     copyBtn.style.display = 'block';
 
   } catch (err) {
-    trans.innerHTML = `<div class="error"><strong>Ошибка:</strong><br><code>${err.message}</code></div>`;
+    const isNetwork = err instanceof TypeError && err.message === 'Failed to fetch';
+    const msg = isNetwork
+      ? 'Не удаётся подключиться к api.anthropic.com.<br>Возможные причины:<br>• API заблокирован провайдером/Роскомнадзором — включите VPN<br>• Нет интернета<br>• Браузерное расширение блокирует запрос (попробуйте отключить AdBlock/uBlock)'
+      : err.message;
+    trans.innerHTML = `<div class="error"><strong>Ошибка:</strong><br>${msg}</div>`;
   } finally {
     loading.style.display = 'none';
   }
