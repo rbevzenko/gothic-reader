@@ -452,17 +452,39 @@ function parseDlcUrl(url) {
   if (!m) return null;
   return {
     id: m[1],
-    page: String(parseInt(m[2])).padStart(8, '0')
+    pageNum: parseInt(m[2]),                              // 1-based integer
+    page: String(parseInt(m[2])).padStart(8, '0')         // "00000021"
   };
 }
 
-function dlcImageUrl(id, page) {
-  // IIIF Image API v2 — returns JPEG (browsers can display it)
-  return `https://dlc.mpg.de/api/v1/records/${id}/files/images/${page}.tif/full/full/0/default.jpg`;
-}
+// Fetch IIIF manifest and return correct image URL for a given page (1-based)
+async function getImageUrlFromManifest(id, pageNum) {
+  const resp = await fetch(`https://dlc.mpg.de/api/v2/records/${id}/manifest/`);
+  if (!resp.ok) return null;
+  const manifest = await resp.json();
+  const idx = pageNum - 1;
 
-function dlcOcrUrl(id, page) {
-  return `https://dlc.mpg.de/api/v1/records/${id}/files/plaintext/${page}.xml`;
+  // IIIF Presentation v2
+  const canvases = manifest?.sequences?.[0]?.canvases;
+  if (canvases?.[idx]) {
+    const resource = canvases[idx]?.images?.[0]?.resource;
+    const svcId = resource?.service?.['@id'] || resource?.service?.[0]?.['@id'];
+    if (svcId) return `${svcId}/full/full/0/default.jpg`;
+    const resId = resource?.['@id'];
+    if (resId && !resId.endsWith('info.json')) return resId;
+  }
+
+  // IIIF Presentation v3
+  const items = manifest?.items;
+  if (items?.[idx]) {
+    const body = items[idx]?.items?.[0]?.items?.[0]?.body;
+    if (body?.id && /\.(jpg|jpeg|png|webp)/i.test(body.id)) return body.id;
+    const svc = body?.service?.[0];
+    const svcId = svc?.['@id'] || svc?.id;
+    if (svcId) return `${svcId}/full/full/0/default.jpg`;
+  }
+
+  return null;
 }
 
 document.getElementById('url-btn').addEventListener('click', () => {
@@ -480,34 +502,48 @@ async function loadFromUrl(url) {
     return;
   }
 
-  const { id, page } = parsed;
-  const imageUrl = dlcImageUrl(id, page);
+  const { id, page, pageNum } = parsed;
 
-  // Show image panel immediately
+  // Show panels
+  document.getElementById('columns').style.display = 'grid';
+  document.getElementById('orig-empty').style.display = 'none';
   const img = document.getElementById('orig-img');
+  img.style.display = 'none'; // hide until we have a valid URL
+
+  // 1. Get correct image URL from IIIF manifest
+  let imageUrl = null;
+  try {
+    imageUrl = await getImageUrlFromManifest(id, pageNum);
+  } catch (_) {}
+  // Fallback: try IIIF path directly
+  if (!imageUrl) {
+    imageUrl = `https://dlc.mpg.de/api/v1/records/${id}/files/images/${page}.tif/full/full/0/default.jpg`;
+  }
   img.src = imageUrl;
   img.style.display = 'block';
-  document.getElementById('orig-empty').style.display = 'none';
-  document.getElementById('columns').style.display = 'grid';
 
-  // Try OCR text first, fall back to Vision
+  // 2. Try OCR text; validate strictly before using
   let ocrText = null;
   try {
-    const ocrUrl = dlcOcrUrl(id, page);
+    const ocrUrl = `https://dlc.mpg.de/api/v1/records/${id}/files/plaintext/${page}.xml`;
     const resp = await fetch(ocrUrl);
-    if (resp.ok) {
+    const ct = resp.headers.get('content-type') || '';
+    if (resp.ok && (ct.includes('xml') || ct.includes('text/plain'))) {
       const xml = await resp.text();
-      // Extract plain text from XML
-      const doc = new DOMParser().parseFromString(xml, 'text/xml');
-      ocrText = doc.documentElement.textContent.replace(/\s+/g, ' ').trim();
-      if (!ocrText) ocrText = null;
+      // Must be valid XML, not an HTML error page
+      if (!xml.trim().startsWith('<html') && !xml.includes('<!DOCTYPE html')) {
+        const doc = new DOMParser().parseFromString(xml, 'text/xml');
+        if (!doc.querySelector('parsererror')) {
+          const text = doc.documentElement.textContent.replace(/\s+/g, ' ').trim();
+          if (text.length > 50) ocrText = text;
+        }
+      }
     }
   } catch (_) { /* CORS or network — will use Vision */ }
 
   if (ocrText) {
     translateText(ocrText);
   } else {
-    // Fall back to Vision via image URL
     translateVisionUrl(imageUrl);
   }
 }
