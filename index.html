@@ -339,7 +339,7 @@
         <span class="panel-title">Оригинал · Fraktur</span>
       </div>
       <div class="panel-body">
-        <img id="orig-img" alt="оригинал">
+        <img id="orig-img" alt="оригинал" referrerpolicy="no-referrer">
         <div class="empty" id="orig-empty">Загрузите скриншот страницы</div>
       </div>
     </div>
@@ -552,10 +552,14 @@ async function loadFromUrl(url) {
   const thumbUrl = urls?.thumbUrl || `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!400,400/0/default.jpg`;
 
   // 2. Display image directly — <img src> works cross-origin without CORS
-  img.src = fullUrl;
+  img.referrerPolicy = 'no-referrer';
   img.style.display = 'block';
-  img.onerror = () => { img.src = thumbUrl; }; // fallback to thumbnail
   origEmpty.style.display = 'none';
+  img.onerror = () => {
+    if (img.src !== thumbUrl) { img.src = thumbUrl; } // try thumbnail once
+    else { img.style.display = 'none'; origEmpty.textContent = ''; origEmpty.style.display = 'block'; }
+  };
+  img.src = fullUrl;
 
   // 3. Fetch OCR text (v1 API — confirmed working)
   let ocrText = null;
@@ -564,12 +568,14 @@ async function loadFromUrl(url) {
     const resp = await fetch(ocrUrl);
     if (resp.ok) {
       const xml = await resp.text();
-      if (!xml.trim().startsWith('<html') && !xml.includes('<!DOCTYPE html')) {
-        const doc = new DOMParser().parseFromString(xml, 'text/xml');
-        if (!doc.querySelector('parsererror')) {
-          const text = doc.documentElement.textContent.replace(/\s+/g, ' ').trim();
-          if (text.length > 50) ocrText = text;
-        }
+      // Use regex stripping instead of DOMParser (avoids namespace/encoding failures)
+      if (!xml.trim().toLowerCase().startsWith('<!doctype html') && !xml.trim().startsWith('<html')) {
+        const text = xml
+          .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, ' ')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+          .replace(/\s+/g, ' ').trim();
+        if (text.length > 50) ocrText = text;
       }
     }
   } catch (_) {}
