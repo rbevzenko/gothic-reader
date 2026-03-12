@@ -457,8 +457,9 @@ function parseDlcUrl(url) {
   };
 }
 
-// Fetch IIIF manifest and return correct image URL for a given page (1-based)
-async function getImageUrlFromManifest(id, pageNum) {
+// Fetch IIIF manifest and return image URLs for a given page (1-based)
+// Returns { fullUrl, thumbUrl } where fullUrl may be null
+async function getImageUrlsFromManifest(id, pageNum) {
   const resp = await fetch(`https://dlc.mpg.de/api/v2/records/${id}/manifest/`);
   if (!resp.ok) return null;
   const manifest = await resp.json();
@@ -469,23 +470,41 @@ async function getImageUrlFromManifest(id, pageNum) {
   if (canvases?.[idx]) {
     const resource = canvases[idx]?.images?.[0]?.resource;
     const svcId = resource?.service?.['@id'] || resource?.service?.[0]?.['@id'];
-    if (svcId) return `${svcId}/full/full/0/default.jpg`;
-    const resId = resource?.['@id'];
-    if (resId && !resId.endsWith('info.json')) return resId;
+    if (svcId) return { fullUrl: `${svcId}/full/max/0/default.jpg`, thumbUrl: `${svcId}/full/!400,400/0/default.jpg` };
   }
 
   // IIIF Presentation v3
   const items = manifest?.items;
   if (items?.[idx]) {
     const body = items[idx]?.items?.[0]?.items?.[0]?.body;
-    // Prefer service URL for full resolution (body.id is typically a thumbnail)
     const svc = body?.service?.[0];
     const svcId = svc?.['@id'] || svc?.id;
-    if (svcId) return `${svcId}/full/full/0/default.jpg`;
-    if (body?.id) return body.id;
+    if (svcId) return { fullUrl: `${svcId}/full/max/0/default.jpg`, thumbUrl: body?.id || `${svcId}/full/!400,400/0/default.jpg` };
+    if (body?.id) return { fullUrl: null, thumbUrl: body.id };
   }
 
   return null;
+}
+
+// Fetch image via browser fetch() and return { dataUrl, b64, type }
+async function fetchImageAsBase64(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  const blob = await resp.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      const match = dataUrl.match(/^data:(image\/[a-z+]+);base64,/);
+      resolve({
+        dataUrl,
+        type: match ? match[1] : 'image/jpeg',
+        b64: dataUrl.slice(dataUrl.indexOf(',') + 1)
+      });
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 }
 
 document.getElementById('url-btn').addEventListener('click', () => {
@@ -505,33 +524,52 @@ async function loadFromUrl(url) {
 
   const { id, page, pageNum } = parsed;
 
-  // Show panels
+  // Show panels with loading state
   document.getElementById('columns').style.display = 'grid';
-  document.getElementById('orig-empty').style.display = 'none';
+  const origEmpty = document.getElementById('orig-empty');
+  origEmpty.textContent = 'Загружаю изображение…';
+  origEmpty.style.display = 'block';
   const img = document.getElementById('orig-img');
-  img.style.display = 'none'; // hide until we have a valid URL
+  img.style.display = 'none';
 
-  // 1. Get correct image URL from IIIF manifest
-  let imageUrl = null;
-  try {
-    imageUrl = await getImageUrlFromManifest(id, pageNum);
-  } catch (_) {}
-  // Fallback: try IIIF path directly
-  if (!imageUrl) {
-    imageUrl = `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/full/0/default.jpg`;
+  // Show translation loading spinner right away
+  const loading = document.getElementById('loading');
+  const trans = document.getElementById('translation');
+  loading.style.display = 'block';
+  trans.innerHTML = '';
+  document.getElementById('copy-btn').style.display = 'none';
+
+  // 1. Get image URLs from IIIF manifest
+  let urls = null;
+  try { urls = await getImageUrlsFromManifest(id, pageNum); } catch (_) {}
+  const fullUrl = urls?.fullUrl || `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/max/0/default.jpg`;
+  const thumbUrl = urls?.thumbUrl || fullUrl;
+
+  // 2. Fetch image as blob (IIIF requires CORS support)
+  let imgData = null;
+  for (const tryUrl of [fullUrl, thumbUrl]) {
+    try {
+      imgData = await fetchImageAsBase64(tryUrl);
+      break;
+    } catch (_) {}
   }
-  img.src = imageUrl;
-  img.style.display = 'block';
 
-  // 2. Try OCR text; validate strictly before using
+  if (imgData) {
+    img.src = imgData.dataUrl;
+    img.style.display = 'block';
+    origEmpty.style.display = 'none';
+  } else {
+    origEmpty.textContent = 'Не удалось загрузить изображение';
+  }
+
+  // 3. Try OCR text first; validate strictly
   let ocrText = null;
   try {
-    const ocrUrl = `https://dlc.mpg.de/api/v1/records/${id}/files/plaintext/${page}.xml`;
+    const ocrUrl = `https://dlc.mpg.de/api/v2/records/${id}/files/plaintext/${page}.xml`;
     const resp = await fetch(ocrUrl);
     const ct = resp.headers.get('content-type') || '';
     if (resp.ok && (ct.includes('xml') || ct.includes('text/plain'))) {
       const xml = await resp.text();
-      // Must be valid XML, not an HTML error page
       if (!xml.trim().startsWith('<html') && !xml.includes('<!DOCTYPE html')) {
         const doc = new DOMParser().parseFromString(xml, 'text/xml');
         if (!doc.querySelector('parsererror')) {
@@ -540,12 +578,17 @@ async function loadFromUrl(url) {
         }
       }
     }
-  } catch (_) { /* CORS or network — will use Vision */ }
+  } catch (_) {}
+
+  loading.style.display = 'none'; // let translate functions show their own spinner
 
   if (ocrText) {
     translateText(ocrText);
+  } else if (imgData) {
+    // Pass base64 to Claude Vision (reliable, no server-side download needed)
+    translate(imgData.b64, imgData.type);
   } else {
-    translateVisionUrl(imageUrl);
+    showTranslateError(new Error('Не удалось загрузить изображение. Проверьте ссылку или загрузите скриншот вручную.'));
   }
 }
 
@@ -604,59 +647,6 @@ async function translateText(ocrText) {
   }
 }
 
-async function translateVisionUrl(imageUrl) {
-  const loading = document.getElementById('loading');
-  const trans = document.getElementById('translation');
-  const copyBtn = document.getElementById('copy-btn');
-
-  loading.style.display = 'block';
-  trans.innerHTML = '';
-  copyBtn.style.display = 'none';
-  lastResult = null;
-
-  try {
-    const apiKey = document.getElementById('apikey-input').value.trim();
-    if (!apiKey) throw new Error('Введите Anthropic API Key в поле выше');
-
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-5',
-        max_tokens: 4000,
-        system: PROMPT,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'url', url: imageUrl } },
-            { type: 'text', text: 'Прочитай страницу. Каждый абзац оригинала — отдельный элемент массива paragraphs. Верни только JSON.' }
-          ]
-        }]
-      })
-    });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
-
-    const raw = (data.content || []).map(b => b.text || '').join('');
-    const m = raw.match(/\{[\s\S]*\}/);
-    if (!m) throw new Error('Нет JSON в ответе: ' + raw.slice(0, 300));
-
-    lastResult = JSON.parse(m[0]);
-    render(lastResult);
-    copyBtn.style.display = 'block';
-
-  } catch (err) {
-    showTranslateError(err);
-  } finally {
-    loading.style.display = 'none';
-  }
-}
 
 function showTranslateError(err) {
   const trans = document.getElementById('translation');
