@@ -330,6 +330,12 @@ const PROMPT = `Ты — специалист по немецкой юридич
 
 let lastResult = null;
 
+// Persist API key in localStorage
+const apikeyInput = document.getElementById('apikey-input');
+const STORAGE_KEY = 'gothic_reader_apikey';
+apikeyInput.value = localStorage.getItem(STORAGE_KEY) || '';
+apikeyInput.addEventListener('input', () => localStorage.setItem(STORAGE_KEY, apikeyInput.value.trim()));
+
 // Upload zone
 const zone = document.getElementById('upload-zone');
 const fileInput = document.getElementById('file-input');
