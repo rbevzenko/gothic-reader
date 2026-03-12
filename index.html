@@ -245,6 +245,50 @@
 
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  /* URL bar */
+  #url-bar {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 0.55rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.72rem;
+    color: #7a5a30;
+  }
+  #url-bar label { white-space: nowrap; }
+  #url-bar input {
+    flex: 1;
+    font-size: 0.8rem;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--border);
+    background: var(--parchment);
+    color: var(--ink);
+    border-radius: 1px;
+    min-width: 0;
+  }
+  #url-bar input:focus { outline: 1px solid var(--gold); }
+  #url-bar button {
+    white-space: nowrap;
+    font-family: Georgia, serif;
+    font-size: 0.75rem;
+    padding: 0.25rem 0.8rem;
+    background: var(--parchment-dark);
+    border: 1px solid var(--border);
+    border-radius: 1px;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  #url-bar button:hover { background: var(--parchment-shadow); }
+
+  .or-divider {
+    text-align: center;
+    font-size: 0.68rem;
+    color: #8a6040;
+    letter-spacing: 0.1em;
+  }
+
   @media (max-width: 700px) {
     #columns { grid-template-columns: 1fr; }
   }
@@ -267,6 +311,14 @@
     API ключ сохранён. <a id="apikey-change">Изменить</a>
   </div>
 
+  <div id="url-bar">
+    <label for="url-input">Ссылка dlc.mpg.de:</label>
+    <input id="url-input" type="url" placeholder="https://dlc.mpg.de/fullscreen/mpirg_sisis_139686/5/">
+    <button id="url-btn">Перевести</button>
+  </div>
+
+  <div class="or-divider">— или загрузите скриншот —</div>
+
   <div id="upload-zone">
     <div class="icon">📄</div>
     <strong>Перетащите скриншот страницы</strong> или нажмите для выбора
@@ -275,9 +327,8 @@
   </div>
 
   <div id="hint">
-    <strong>Как использовать:</strong> введите API ключ выше, откройте нужную страницу на
-    <code>dlc.mpg.de</code>, сделайте скриншот (Win+Shift+S или Cmd+Shift+4),
-    загрузите сюда — получите перевод на русский язык.
+    <strong>Совет:</strong> вставьте ссылку на страницу с <code>dlc.mpg.de/fullscreen/…</code>
+    и нажмите «Перевести» — приложение само скачает OCR-текст и изображение, переведёт на русский.
   </div>
 
   <div id="columns" style="display:none">
@@ -337,6 +388,30 @@ const PROMPT = `Ты — специалист по немецкой юридич
   ]
 }`;
 
+const PROMPT_TEXT = `Ты — специалист по немецкой юридической литературе XIX века.
+Получаешь OCR-текст страницы, оцифрованной из книги, набранной готическим шрифтом (Fraktur).
+Переведи текст на русский язык.
+
+Правила:
+1. Архаичная немецкая орфография — читай точно, не «исправляй».
+2. Латинские слова выделяй отдельно.
+3. Для латинских фрагментов: дай перевод + источник (Дигесты, Институции и т.п.)
+4. Юридические термины сохраняй в скобках на немецком/латыни после русского перевода.
+5. Каждый абзац оригинала — отдельный элемент массива paragraphs. Порядок и количество абзацев должны точно совпадать.
+6. Отвечай ТОЛЬКО валидным JSON — без markdown, без преамбулы.
+
+Формат ответа:
+{
+  "title": "заголовок страницы на русском, или пустая строка если нет",
+  "paragraphs": [
+    "перевод первого абзаца",
+    "перевод второго абзаца"
+  ],
+  "latin_fragments": [
+    { "original": "латинский текст", "translation": "перевод", "source": "источник" }
+  ]
+}`;
+
 let lastResult = null;
 
 // Persist API key in localStorage
@@ -370,6 +445,190 @@ document.getElementById('apikey-change').addEventListener('click', () => {
 });
 
 updateApikeyUI();
+
+// DLC URL loading
+function parseDlcUrl(url) {
+  const m = url.match(/dlc\.mpg\.de\/fullscreen\/([^/?#]+)\/(\d+)/);
+  if (!m) return null;
+  return {
+    id: m[1],
+    page: String(parseInt(m[2])).padStart(8, '0')
+  };
+}
+
+function dlcImageUrl(id, page) {
+  // IIIF Image API v2 — returns JPEG (browsers can display it)
+  return `https://dlc.mpg.de/api/v1/records/${id}/files/images/${page}.tif/full/full/0/default.jpg`;
+}
+
+function dlcOcrUrl(id, page) {
+  return `https://dlc.mpg.de/api/v1/records/${id}/files/plaintext/${page}.xml`;
+}
+
+document.getElementById('url-btn').addEventListener('click', () => {
+  loadFromUrl(document.getElementById('url-input').value.trim());
+});
+document.getElementById('url-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') loadFromUrl(document.getElementById('url-input').value.trim());
+});
+
+async function loadFromUrl(url) {
+  if (!url) return;
+  const parsed = parseDlcUrl(url);
+  if (!parsed) {
+    alert('Не удалось распознать ссылку.\nОжидается формат: dlc.mpg.de/fullscreen/{id}/{page}/');
+    return;
+  }
+
+  const { id, page } = parsed;
+  const imageUrl = dlcImageUrl(id, page);
+
+  // Show image panel immediately
+  const img = document.getElementById('orig-img');
+  img.src = imageUrl;
+  img.style.display = 'block';
+  document.getElementById('orig-empty').style.display = 'none';
+  document.getElementById('columns').style.display = 'grid';
+
+  // Try OCR text first, fall back to Vision
+  let ocrText = null;
+  try {
+    const ocrUrl = dlcOcrUrl(id, page);
+    const resp = await fetch(ocrUrl);
+    if (resp.ok) {
+      const xml = await resp.text();
+      // Extract plain text from XML
+      const doc = new DOMParser().parseFromString(xml, 'text/xml');
+      ocrText = doc.documentElement.textContent.replace(/\s+/g, ' ').trim();
+      if (!ocrText) ocrText = null;
+    }
+  } catch (_) { /* CORS or network — will use Vision */ }
+
+  if (ocrText) {
+    translateText(ocrText);
+  } else {
+    // Fall back to Vision via image URL
+    translateVisionUrl(imageUrl);
+  }
+}
+
+async function translateText(ocrText) {
+  const loading = document.getElementById('loading');
+  const trans = document.getElementById('translation');
+  const copyBtn = document.getElementById('copy-btn');
+
+  loading.style.display = 'block';
+  trans.innerHTML = '';
+  copyBtn.style.display = 'none';
+  lastResult = null;
+
+  // Update loading message
+  const loadingMsg = loading.querySelector('span + *') || loading.childNodes[loading.childNodes.length - 1];
+  loading.childNodes[loading.childNodes.length - 1].textContent = ' Перевожу OCR-текст…';
+
+  try {
+    const apiKey = document.getElementById('apikey-input').value.trim();
+    if (!apiKey) throw new Error('Введите Anthropic API Key в поле выше');
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5',
+        max_tokens: 4000,
+        system: PROMPT_TEXT,
+        messages: [{
+          role: 'user',
+          content: ocrText
+        }]
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+
+    const raw = (data.content || []).map(b => b.text || '').join('');
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error('Нет JSON в ответе: ' + raw.slice(0, 300));
+
+    lastResult = JSON.parse(m[0]);
+    render(lastResult);
+    copyBtn.style.display = 'block';
+
+  } catch (err) {
+    showTranslateError(err);
+  } finally {
+    loading.style.display = 'none';
+  }
+}
+
+async function translateVisionUrl(imageUrl) {
+  const loading = document.getElementById('loading');
+  const trans = document.getElementById('translation');
+  const copyBtn = document.getElementById('copy-btn');
+
+  loading.style.display = 'block';
+  trans.innerHTML = '';
+  copyBtn.style.display = 'none';
+  lastResult = null;
+
+  try {
+    const apiKey = document.getElementById('apikey-input').value.trim();
+    if (!apiKey) throw new Error('Введите Anthropic API Key в поле выше');
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5',
+        max_tokens: 4000,
+        system: PROMPT,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'url', url: imageUrl } },
+            { type: 'text', text: 'Прочитай страницу. Каждый абзац оригинала — отдельный элемент массива paragraphs. Верни только JSON.' }
+          ]
+        }]
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+
+    const raw = (data.content || []).map(b => b.text || '').join('');
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error('Нет JSON в ответе: ' + raw.slice(0, 300));
+
+    lastResult = JSON.parse(m[0]);
+    render(lastResult);
+    copyBtn.style.display = 'block';
+
+  } catch (err) {
+    showTranslateError(err);
+  } finally {
+    loading.style.display = 'none';
+  }
+}
+
+function showTranslateError(err) {
+  const trans = document.getElementById('translation');
+  const isNetwork = err instanceof TypeError && err.message === 'Failed to fetch';
+  const msg = isNetwork
+    ? 'Не удаётся подключиться к api.anthropic.com.<br>Возможные причины:<br>• API заблокирован провайдером/Роскомнадзором — включите VPN<br>• Нет интернета<br>• Браузерное расширение блокирует запрос (попробуйте отключить AdBlock/uBlock)'
+    : err.message;
+  trans.innerHTML = `<div class="error"><strong>Ошибка:</strong><br>${msg}</div>`;
+}
 
 // Upload zone
 const zone = document.getElementById('upload-zone');
@@ -456,11 +715,7 @@ async function translate(b64, type) {
     copyBtn.style.display = 'block';
 
   } catch (err) {
-    const isNetwork = err instanceof TypeError && err.message === 'Failed to fetch';
-    const msg = isNetwork
-      ? 'Не удаётся подключиться к api.anthropic.com.<br>Возможные причины:<br>• API заблокирован провайдером/Роскомнадзором — включите VPN<br>• Нет интернета<br>• Браузерное расширение блокирует запрос (попробуйте отключить AdBlock/uBlock)'
-      : err.message;
-    trans.innerHTML = `<div class="error"><strong>Ошибка:</strong><br>${msg}</div>`;
+    showTranslateError(err);
   } finally {
     loading.style.display = 'none';
   }
