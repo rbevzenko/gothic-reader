@@ -562,6 +562,13 @@ async function loadFromUrl(url) {
   try { urls = await getImageUrlsFromManifest(id, pageNum); } catch (_) {}
   const fullUrl = urls?.fullUrl || null;
   const thumbUrl = urls?.thumbUrl || null;
+  // Fallback URLs for Claude API (Anthropic servers fetch these, no CORS needed)
+  const claudeUrl = urls?.fullUrl
+    || `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!1500,2000/0/default.jpg`;
+  const claudeThumb = urls?.thumbUrl
+    || `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!400,400/0/default.jpg`;
+  // v1 image URL (same API that serves OCR text — likely accessible)
+  const v1ImageUrl = `https://dlc.mpg.de/api/v1/records/${id}/files/images/${page}.jpg`;
 
   // 2. Display image via weserv.nl proxy (bypasses hotlink & CORS restrictions)
   function weservUrl(u) {
@@ -569,7 +576,7 @@ async function loadFromUrl(url) {
   }
   img.style.display = 'none';
   (async () => {
-    const candidates = [fullUrl, thumbUrl].filter(Boolean);
+    const candidates = [fullUrl, thumbUrl, v1ImageUrl].filter(Boolean);
     // Try direct first, then weserv proxy
     for (const useProxy of [false, true]) {
       for (const u of candidates) {
@@ -627,7 +634,7 @@ async function loadFromUrl(url) {
     // OCR unavailable — pass URL directly to Claude API (its servers download it)
     loading.style.display = 'block';
     let urlTranslated = false;
-    for (const u of [fullUrl, thumbUrl]) {
+    for (const u of [claudeUrl, claudeThumb]) {
       try {
         await translateImageUrl(u);
         urlTranslated = true;
