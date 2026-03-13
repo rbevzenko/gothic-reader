@@ -493,7 +493,27 @@ async function getImageUrlsFromManifest(id, pageNum) {
   return null;
 }
 
-// Extract image via Canvas (works when server sends CORS headers on images)
+// Convert blob to base64 image data
+function blobToImgData(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      resolve({ dataUrl, type: 'image/jpeg', b64: dataUrl.slice(dataUrl.indexOf(',') + 1) });
+    };
+    reader.onerror = () => reject(new Error('FileReader failed'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Extract image via direct fetch (works if server sends CORS headers)
+async function getImageViaFetch(url) {
+  const resp = await fetch(url, { credentials: 'omit', cache: 'no-store' });
+  if (!resp.ok) throw new Error(`status ${resp.status}`);
+  return blobToImgData(await resp.blob());
+}
+
+// Extract image via Canvas
 async function getImageViaCanvas(url) {
   return new Promise((resolve, reject) => {
     const el = new Image();
@@ -513,21 +533,14 @@ async function getImageViaCanvas(url) {
   });
 }
 
-// Extract image via CORS proxy (fallback when direct Canvas fails due to CORS)
-async function getImageViaProxy(url) {
-  const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+// Extract image via CORS proxy
+async function getImageViaProxy(url, proxyPrefix) {
+  const proxyUrl = proxyPrefix.endsWith('=')
+    ? proxyPrefix + encodeURIComponent(url)
+    : proxyPrefix + url;
   const resp = await fetch(proxyUrl, { cache: 'no-store' });
-  if (!resp.ok) throw new Error(`proxy ${resp.status}`);
-  const blob = await resp.blob();
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result;
-      resolve({ dataUrl, type: 'image/jpeg', b64: dataUrl.slice(dataUrl.indexOf(',') + 1) });
-    };
-    reader.onerror = () => reject(new Error('FileReader failed'));
-    reader.readAsDataURL(blob);
-  });
+  if (!resp.ok) throw new Error(`${resp.status}`);
+  return blobToImgData(await resp.blob());
 }
 
 document.getElementById('url-btn').addEventListener('click', () => {
@@ -608,15 +621,26 @@ async function loadFromUrl(url) {
   } else {
     // OCR unavailable — try Canvas, then CORS proxy for Vision
     let imgData = null;
-    for (const tryUrl of [fullUrl, thumbUrl]) {
-      try { imgData = await getImageViaCanvas(tryUrl); dbg.push('canvas=ok'); break; }
+    const imgUrls = [thumbUrl, fullUrl];
+    // 1. Direct fetch (works if server has CORS headers)
+    for (const u of imgUrls) {
+      try { imgData = await getImageViaFetch(u); dbg.push('fetch=ok'); break; }
+      catch (e) { dbg.push(`fetch=${e.message.slice(0,20)}`); }
+    }
+    // 2. Canvas
+    if (!imgData) for (const u of imgUrls) {
+      try { imgData = await getImageViaCanvas(u); dbg.push('canvas=ok'); break; }
       catch (e) { dbg.push(`canvas=${e.message}`); }
     }
-    if (!imgData) {
-      for (const tryUrl of [thumbUrl, fullUrl]) {
-        try { imgData = await getImageViaProxy(tryUrl); dbg.push('proxy=ok'); break; }
-        catch (e) { dbg.push(`proxy=${e.message}`); }
-      }
+    // 3. corsproxy.io
+    if (!imgData) for (const u of imgUrls) {
+      try { imgData = await getImageViaProxy(u, 'https://corsproxy.io/?'); dbg.push('corsproxy=ok'); break; }
+      catch (e) { dbg.push(`corsproxy=${e.message.slice(0,20)}`); }
+    }
+    // 4. allorigins.win
+    if (!imgData) for (const u of imgUrls) {
+      try { imgData = await getImageViaProxy(u, 'https://api.allorigins.win/raw?url='); dbg.push('allorigins=ok'); break; }
+      catch (e) { dbg.push(`allorigins=${e.message.slice(0,20)}`); }
     }
     if (imgData) {
       translate(imgData.b64, imgData.type);
