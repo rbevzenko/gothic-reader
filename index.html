@@ -513,6 +513,23 @@ async function getImageViaCanvas(url) {
   });
 }
 
+// Extract image via CORS proxy (fallback when direct Canvas fails due to CORS)
+async function getImageViaProxy(url) {
+  const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+  const resp = await fetch(proxyUrl, { cache: 'no-store' });
+  if (!resp.ok) throw new Error(`proxy ${resp.status}`);
+  const blob = await resp.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      resolve({ dataUrl, type: 'image/jpeg', b64: dataUrl.slice(dataUrl.indexOf(',') + 1) });
+    };
+    reader.onerror = () => reject(new Error('FileReader failed'));
+    reader.readAsDataURL(blob);
+  });
+}
+
 document.getElementById('url-btn').addEventListener('click', () => {
   loadFromUrl(document.getElementById('url-input').value.trim());
 });
@@ -589,11 +606,17 @@ async function loadFromUrl(url) {
   if (ocrText) {
     translateText(ocrText);
   } else {
-    // OCR unavailable — try Canvas extraction for Vision
+    // OCR unavailable — try Canvas, then CORS proxy for Vision
     let imgData = null;
     for (const tryUrl of [fullUrl, thumbUrl]) {
       try { imgData = await getImageViaCanvas(tryUrl); dbg.push('canvas=ok'); break; }
       catch (e) { dbg.push(`canvas=${e.message}`); }
+    }
+    if (!imgData) {
+      for (const tryUrl of [thumbUrl, fullUrl]) {
+        try { imgData = await getImageViaProxy(tryUrl); dbg.push('proxy=ok'); break; }
+        catch (e) { dbg.push(`proxy=${e.message}`); }
+      }
     }
     if (imgData) {
       translate(imgData.b64, imgData.type);
