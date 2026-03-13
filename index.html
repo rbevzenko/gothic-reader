@@ -532,7 +532,8 @@ async function loadFromUrl(url) {
   const fullUrl = urls?.fullUrl || `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!1500,2000/0/default.jpg`;
   const thumbUrl = urls?.thumbUrl || `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!400,400/0/default.jpg`;
 
-  // 2. Display image directly — <img src> works cross-origin without CORS
+  // 2. Display image — referrerPolicy=no-referrer bypasses dlc.mpg.de hotlink protection
+  img.referrerPolicy = 'no-referrer';
   img.style.display = 'block';
   origEmpty.style.display = 'none';
   img.onerror = () => {
