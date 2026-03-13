@@ -627,7 +627,7 @@ async function loadFromUrl(url) {
   } else {
     // OCR unavailable — try Canvas, then CORS proxy for Vision
     let imgData = null;
-    const imgUrls = [thumbUrl, fullUrl];
+    const imgUrls = [fullUrl, thumbUrl];
     // 1. Direct fetch (works if server has CORS headers)
     for (const u of imgUrls) {
       try { imgData = await getImageViaFetch(u); dbg.push('fetch=ok'); break; }
@@ -651,10 +651,10 @@ async function loadFromUrl(url) {
     if (imgData) {
       translate(imgData.b64, imgData.type);
     } else {
-      // 5. Last resort: pass URL directly to Claude API (its servers download it)
+      // 5. Last resort: pass full URL directly to Claude API (its servers download it)
       loading.style.display = 'block';
       let urlTranslated = false;
-      for (const u of imgUrls) {
+      for (const u of [fullUrl, thumbUrl]) {
         try {
           await translateImageUrl(u);
           urlTranslated = true;
@@ -814,6 +814,9 @@ async function translateImageUrl(imageUrl) {
   if (!m) throw new Error('Нет JSON в ответе: ' + raw.slice(0, 300));
 
   lastResult = JSON.parse(m[0]);
+  if (!lastResult.title && !lastResult.paragraphs?.length) {
+    throw new Error('Текст на странице не распознан');
+  }
   render(lastResult);
   copyBtn.style.display = 'block';
   loading.style.display = 'none';
