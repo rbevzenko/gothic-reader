@@ -457,71 +457,75 @@ function parseDlcUrl(url) {
   };
 }
 
-// Extract image URL from IIIF manifest JSON
-function parseManifest(manifest, idx) {
-  // IIIF Presentation v2
-  const canvases = manifest?.sequences?.[0]?.canvases;
-  if (canvases?.[idx]) {
-    const resource = canvases[idx]?.images?.[0]?.resource;
-    const svcId = resource?.service?.['@id'] || resource?.service?.[0]?.['@id'];
-    if (svcId) return {
-      fullUrl: `${svcId}/full/!1500,2000/0/default.jpg`,
-      thumbUrl: `${svcId}/full/!400,400/0/default.jpg`
-    };
-    if (resource?.['@id']) return { fullUrl: resource['@id'], thumbUrl: resource['@id'] };
-  }
-
-  // IIIF Presentation v3
-  const items = manifest?.items;
-  if (items?.[idx]) {
-    const anno = items[idx]?.items?.[0]?.items?.[0];
-    const body = anno?.body;
-    const bodyItem = Array.isArray(body) ? body[0] : body;
-    const directUrl = bodyItem?.id;
-    const svc = bodyItem?.service?.[0] || bodyItem?.service;
-    const svcId = svc?.['@id'] || svc?.id;
-    if (svcId) return {
-      fullUrl: `${svcId}/full/!1500,2000/0/default.jpg`,
-      thumbUrl: directUrl || `${svcId}/full/!400,400/0/default.jpg`
-    };
-    if (directUrl) return { fullUrl: directUrl, thumbUrl: directUrl };
-  }
-
+// Extract image body from a IIIF canvas object
+function imageFromCanvas(canvas) {
+  const anno = canvas?.items?.[0]?.items?.[0];
+  const body = anno?.body;
+  const bodyItem = Array.isArray(body) ? body[0] : body;
+  if (!bodyItem) return null;
+  const directUrl = bodyItem?.id;
+  const svc = bodyItem?.service?.[0] || bodyItem?.service;
+  const svcId = svc?.['@id'] || svc?.id;
+  if (svcId) return {
+    fullUrl: `${svcId}/full/!1500,2000/0/default.jpg`,
+    thumbUrl: directUrl || `${svcId}/full/!400,400/0/default.jpg`
+  };
+  if (directUrl) return { fullUrl: directUrl, thumbUrl: directUrl };
   return null;
 }
 
-// Get image URLs for a page: tries viewer HTML og:image, then IIIF manifests
+// Get image URLs for a page from IIIF manifest + canvas
 async function getImageUrlsFromManifest(id, pageNum) {
-  // Strategy 1: og:image from the viewer HTML page (most reliable)
-  for (const viewerUrl of [
-    `https://dlc.mpg.de/image/${id}/${pageNum}/`,
-    `https://dlc.mpg.de/fullscreen/${id}/${pageNum}/`,
-  ]) {
-    try {
-      const r = await fetch(viewerUrl);
-      if (!r.ok) continue;
-      const html = await r.text();
-      const m = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
-             || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
-      if (m?.[1]) return { fullUrl: m[1], thumbUrl: m[1] };
-    } catch (_) {}
-  }
+  const page = String(pageNum).padStart(8, '0');
 
-  // Strategy 2: IIIF manifests (full record + page-specific)
-  for (const [manifestUrl, manifestIdx] of [
-    [`https://dlc.mpg.de/api/v2/records/${id}/manifest/`, pageNum - 1],
-    [`https://dlc.mpg.de/api/v2/records/${id}/pages/${pageNum}/manifest/`, 0],
-  ]) {
-    try {
-      const r = await fetch(manifestUrl);
-      if (!r.ok) continue;
-      const manifest = await r.json();
-      const result = parseManifest(manifest, manifestIdx);
-      if (result) return result;
-    } catch (_) {}
-  }
+  try {
+    const r = await fetch(`https://dlc.mpg.de/api/v2/records/${id}/manifest/`);
+    if (!r.ok) throw new Error('manifest 404');
+    const manifest = await r.json();
+    const idx = pageNum - 1;
+
+    // IIIF v2: canvases embedded with image data
+    const canvases = manifest?.sequences?.[0]?.canvases;
+    if (canvases?.[idx]) {
+      const resource = canvases[idx]?.images?.[0]?.resource;
+      const svcId = resource?.service?.['@id'] || resource?.service?.[0]?.['@id'];
+      if (svcId) return {
+        fullUrl: `${svcId}/full/!1500,2000/0/default.jpg`,
+        thumbUrl: `${svcId}/full/!400,400/0/default.jpg`
+      };
+      if (resource?.['@id']) return { fullUrl: resource['@id'], thumbUrl: resource['@id'] };
+    }
+
+    // IIIF v3: canvas references — fetch each canvas separately
+    const items = manifest?.items;
+    if (items?.[idx]) {
+      // Try embedded data first
+      const embedded = imageFromCanvas(items[idx]);
+      if (embedded) return embedded;
+
+      // Follow canvas URL to get embedded data
+      const canvasUrl = items[idx]?.id;
+      if (canvasUrl) {
+        try {
+          const cr = await fetch(canvasUrl);
+          if (cr.ok) {
+            const canvasData = await cr.json();
+            const result = imageFromCanvas(canvasData);
+            if (result) return result;
+          }
+        } catch (_) {}
+      }
+
+      // Construct URL from known dlc.mpg.de pattern (seen in manifest thumbnail)
+      return {
+        fullUrl: `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!1500,2000/0/default.jpg`,
+        thumbUrl: `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!400,400/0/default.jpg`
+      };
+    }
+  } catch (_) {}
 
   return null;
+}
 }
 
 
@@ -570,28 +574,21 @@ async function loadFromUrl(url) {
   // v1 image URL (same API that serves OCR text — likely accessible)
   const v1ImageUrl = `https://dlc.mpg.de/api/v1/records/${id}/files/images/${page}.jpg`;
 
-  // 2. Display image via weserv.nl proxy (bypasses hotlink & CORS restrictions)
-  function weservUrl(u) {
-    return 'https://images.weserv.nl/?url=' + encodeURIComponent(u.replace(/^https?:\/\//, ''));
-  }
+  // 2. Display image: try direct fetch (CORS-enabled API), then v1, then link
   img.style.display = 'none';
   (async () => {
     const candidates = [fullUrl, thumbUrl, v1ImageUrl].filter(Boolean);
-    // Try direct first, then weserv proxy
-    for (const useProxy of [false, true]) {
-      for (const u of candidates) {
-        const src = useProxy ? weservUrl(u) : u;
-        try {
-          const r = await fetch(src);
-          if (!r.ok) continue;
-          const blob = await r.blob();
-          if (!blob.type.startsWith('image/') && blob.type !== 'application/octet-stream') continue;
-          img.src = URL.createObjectURL(blob);
-          img.style.display = 'block';
-          origEmpty.style.display = 'none';
-          return;
-        } catch (_) {}
-      }
+    for (const u of candidates) {
+      try {
+        const r = await fetch(u);
+        if (!r.ok) continue;
+        const blob = await r.blob();
+        if (!blob.type.startsWith('image/') && blob.type !== 'application/octet-stream') continue;
+        img.src = URL.createObjectURL(blob);
+        img.style.display = 'block';
+        origEmpty.style.display = 'none';
+        return;
+      } catch (_) {}
     }
     // All failed — show link
     img.style.display = 'none';
