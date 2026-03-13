@@ -532,37 +532,37 @@ async function loadFromUrl(url) {
   const fullUrl = urls?.fullUrl || `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!1500,2000/0/default.jpg`;
   const thumbUrl = urls?.thumbUrl || `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!400,400/0/default.jpg`;
 
-  // 2. Display image: fetch as blob URL (bypasses hotlink protection)
+  // 2. Display image via weserv.nl proxy (bypasses hotlink & CORS restrictions)
+  function weservUrl(u) {
+    return 'https://images.weserv.nl/?url=' + encodeURIComponent(u.replace(/^https?:\/\//, ''));
+  }
   img.style.display = 'none';
   (async () => {
-    for (const u of [fullUrl, thumbUrl].filter(Boolean)) {
-      try {
-        const r = await fetch(u);
-        if (!r.ok) continue;
-        const blob = await r.blob();
-        if (!blob.type.startsWith('image/') && blob.type !== 'application/octet-stream') continue;
-        img.src = URL.createObjectURL(blob);
-        img.style.display = 'block';
-        origEmpty.style.display = 'none';
-        return;
-      } catch (_) {}
-    }
-    // fetch failed — try img src directly as last resort
-    img.referrerPolicy = 'no-referrer';
-    let thumbTried = false;
-    img.onerror = () => {
-      if (!thumbTried && thumbUrl) {
-        thumbTried = true;
-        img.src = thumbUrl;
-      } else {
-        img.style.display = 'none';
-        origEmpty.textContent = 'Изображение недоступно';
-        origEmpty.style.display = 'block';
+    const candidates = [fullUrl, thumbUrl].filter(Boolean);
+    // Try direct first, then weserv proxy
+    for (const useProxy of [false, true]) {
+      for (const u of candidates) {
+        const src = useProxy ? weservUrl(u) : u;
+        try {
+          const r = await fetch(src);
+          if (!r.ok) continue;
+          const blob = await r.blob();
+          if (!blob.type.startsWith('image/') && blob.type !== 'application/octet-stream') continue;
+          img.src = URL.createObjectURL(blob);
+          img.style.display = 'block';
+          origEmpty.style.display = 'none';
+          return;
+        } catch (_) {}
       }
-    };
-    img.src = fullUrl;
-    img.style.display = 'block';
-    origEmpty.style.display = 'none';
+    }
+    // All failed — show link
+    img.style.display = 'none';
+    origEmpty.innerHTML = `<div style="padding:1rem;text-align:center;font-size:0.85rem;color:var(--ink)">
+      Предпросмотр недоступен<br>
+      <a href="https://dlc.mpg.de/fullscreen/${id}/${pageNum}/" target="_blank"
+        style="color:var(--gold)">Открыть оригинал ↗</a>
+    </div>`;
+    origEmpty.style.display = 'block';
   })();
 
   // 3. Fetch OCR text (v1 API)
