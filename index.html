@@ -532,30 +532,38 @@ async function loadFromUrl(url) {
   const fullUrl = urls?.fullUrl || `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!1500,2000/0/default.jpg`;
   const thumbUrl = urls?.thumbUrl || `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!400,400/0/default.jpg`;
 
-  // 2. Display image with fallback chain: img(full) → img(thumb) → iframe → link
-  img.referrerPolicy = 'no-referrer';
-  img.style.display = 'block';
-  origEmpty.style.display = 'none';
-  let thumbTried = false;
-  img.onerror = () => {
-    if (!thumbTried) {
-      thumbTried = true;
-      img.src = thumbUrl;
-    } else {
-      // img blocked — try iframe (different Sec-Fetch-Mode)
-      img.style.display = 'none';
-      origEmpty.innerHTML = `
-        <iframe src="${fullUrl}" referrerpolicy="no-referrer"
-          style="width:100%;height:500px;border:none;background:var(--parchment)">
-        </iframe>
-        <div style="padding:0.4rem 0.5rem;font-size:0.7rem;text-align:center">
-          <a href="https://dlc.mpg.de/fullscreen/${id}/${pageNum}/" target="_blank"
-            style="color:var(--gold)">Открыть оригинал ↗</a>
-        </div>`;
-      origEmpty.style.display = 'block';
+  // 2. Display image: fetch as blob URL (bypasses hotlink protection)
+  img.style.display = 'none';
+  (async () => {
+    for (const u of [fullUrl, thumbUrl].filter(Boolean)) {
+      try {
+        const r = await fetch(u);
+        if (!r.ok) continue;
+        const blob = await r.blob();
+        if (!blob.type.startsWith('image/') && blob.type !== 'application/octet-stream') continue;
+        img.src = URL.createObjectURL(blob);
+        img.style.display = 'block';
+        origEmpty.style.display = 'none';
+        return;
+      } catch (_) {}
     }
-  };
-  img.src = fullUrl;
+    // fetch failed — try img src directly as last resort
+    img.referrerPolicy = 'no-referrer';
+    let thumbTried = false;
+    img.onerror = () => {
+      if (!thumbTried && thumbUrl) {
+        thumbTried = true;
+        img.src = thumbUrl;
+      } else {
+        img.style.display = 'none';
+        origEmpty.textContent = 'Изображение недоступно';
+        origEmpty.style.display = 'block';
+      }
+    };
+    img.src = fullUrl;
+    img.style.display = 'block';
+    origEmpty.style.display = 'none';
+  })();
 
   // 3. Fetch OCR text (v1 API)
   const dbg = [];
