@@ -651,9 +651,22 @@ async function loadFromUrl(url) {
     if (imgData) {
       translate(imgData.b64, imgData.type);
     } else {
-      showTranslateError(new Error(
-        `Не удалось получить данные страницы.<br><small style="opacity:.7">[${dbg.join(' · ')}]</small><br><br>Пожалуйста, сделайте скриншот страницы (Win+Shift+S или Cmd+Shift+4) и загрузите его вручную.`
-      ));
+      // 5. Last resort: pass URL directly to Claude API (its servers download it)
+      loading.style.display = 'block';
+      let urlTranslated = false;
+      for (const u of imgUrls) {
+        try {
+          await translateImageUrl(u);
+          urlTranslated = true;
+          break;
+        } catch (e) { dbg.push(`url=${e.message.slice(0,25)}`); }
+      }
+      loading.style.display = 'none';
+      if (!urlTranslated) {
+        showTranslateError(new Error(
+          `Не удалось получить данные страницы.<br><small style="opacity:.7">[${dbg.join(' · ')}]</small><br><br>Пожалуйста, сделайте скриншот страницы (Win+Shift+S или Cmd+Shift+4) и загрузите его вручную.`
+        ));
+      }
     }
   }
 }
@@ -756,6 +769,54 @@ function handleFile(file) {
     translate(b64, type);
   };
   reader.readAsDataURL(file);
+}
+
+async function translateImageUrl(imageUrl) {
+  const loading = document.getElementById('loading');
+  const trans = document.getElementById('translation');
+  const copyBtn = document.getElementById('copy-btn');
+
+  loading.style.display = 'block';
+  trans.innerHTML = '';
+  copyBtn.style.display = 'none';
+  lastResult = null;
+
+  const apiKey = document.getElementById('apikey-input').value.trim();
+  if (!apiKey) throw new Error('Введите Anthropic API Key');
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-5',
+      max_tokens: 4000,
+      system: PROMPT,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'url', url: imageUrl } },
+          { type: 'text', text: 'Прочитай страницу. Каждый абзац оригинала — отдельный элемент массива paragraphs. Верни только JSON.' }
+        ]
+      }]
+    })
+  });
+
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+
+  const raw = (data.content || []).map(b => b.text || '').join('');
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error('Нет JSON в ответе: ' + raw.slice(0, 300));
+
+  lastResult = JSON.parse(m[0]);
+  render(lastResult);
+  copyBtn.style.display = 'block';
+  loading.style.display = 'none';
 }
 
 async function translate(b64, type) {
