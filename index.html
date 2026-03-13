@@ -493,13 +493,19 @@ async function getImageUrlsFromManifest(id, pageNum) {
   return null;
 }
 
-// Convert blob to base64 image data
+// Convert blob to base64 image data, reject if not a real image
 function blobToImgData(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result;
-      resolve({ dataUrl, type: 'image/jpeg', b64: dataUrl.slice(dataUrl.indexOf(',') + 1) });
+      const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+      // Validate magic bytes: JPEG=/9j/ PNG=iVBOR WebP=UklGR GIF=R0lG
+      if (!['/9j/', 'iVBOR', 'UklGR', 'R0lG'].some(s => b64.startsWith(s))) {
+        reject(new Error('not an image'));
+        return;
+      }
+      resolve({ dataUrl, type: 'image/jpeg', b64 });
     };
     reader.onerror = () => reject(new Error('FileReader failed'));
     reader.readAsDataURL(blob);
