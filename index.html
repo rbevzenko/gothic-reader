@@ -448,7 +448,7 @@ updateApikeyUI();
 
 // DLC URL loading
 function parseDlcUrl(url) {
-  const m = url.match(/dlc\.mpg\.de\/fullscreen\/([^/?#]+)\/(\d+)/);
+  const m = url.match(/dlc\.mpg\.de\/(?:fullscreen|image)\/([^/?#]+)\/(\d+)/);
   if (!m) return null;
   return {
     id: m[1],
@@ -505,7 +505,7 @@ async function loadFromUrl(url) {
   if (!url) return;
   const parsed = parseDlcUrl(url);
   if (!parsed) {
-    alert('Не удалось распознать ссылку.\nОжидается формат: dlc.mpg.de/fullscreen/{id}/{page}/');
+    alert('Не удалось распознать ссылку.\nОжидается формат: dlc.mpg.de/fullscreen/{id}/{page}/ или dlc.mpg.de/image/{id}/{page}/');
     return;
   }
 
