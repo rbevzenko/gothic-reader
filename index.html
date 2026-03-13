@@ -457,14 +457,8 @@ function parseDlcUrl(url) {
   };
 }
 
-// Fetch IIIF manifest and return image URLs for a given page (1-based)
-// Returns { fullUrl, thumbUrl }
-async function getImageUrlsFromManifest(id, pageNum) {
-  const resp = await fetch(`https://dlc.mpg.de/api/v2/records/${id}/manifest/`);
-  if (!resp.ok) return null;
-  const manifest = await resp.json();
-  const idx = pageNum - 1;
-
+// Extract image URL from IIIF manifest JSON
+function parseManifest(manifest, idx) {
   // IIIF Presentation v2
   const canvases = manifest?.sequences?.[0]?.canvases;
   if (canvases?.[idx]) {
@@ -474,20 +468,57 @@ async function getImageUrlsFromManifest(id, pageNum) {
       fullUrl: `${svcId}/full/!1500,2000/0/default.jpg`,
       thumbUrl: `${svcId}/full/!400,400/0/default.jpg`
     };
+    if (resource?.['@id']) return { fullUrl: resource['@id'], thumbUrl: resource['@id'] };
   }
 
   // IIIF Presentation v3
   const items = manifest?.items;
   if (items?.[idx]) {
-    const body = items[idx]?.items?.[0]?.items?.[0]?.body;
-    const thumbUrl = body?.id; // known-good URL from manifest
-    const svc = body?.service?.[0];
+    const anno = items[idx]?.items?.[0]?.items?.[0];
+    const body = anno?.body;
+    const bodyItem = Array.isArray(body) ? body[0] : body;
+    const directUrl = bodyItem?.id;
+    const svc = bodyItem?.service?.[0] || bodyItem?.service;
     const svcId = svc?.['@id'] || svc?.id;
     if (svcId) return {
       fullUrl: `${svcId}/full/!1500,2000/0/default.jpg`,
-      thumbUrl: thumbUrl || `${svcId}/full/!400,400/0/default.jpg`
+      thumbUrl: directUrl || `${svcId}/full/!400,400/0/default.jpg`
     };
-    if (thumbUrl) return { fullUrl: null, thumbUrl };
+    if (directUrl) return { fullUrl: directUrl, thumbUrl: directUrl };
+  }
+
+  return null;
+}
+
+// Get image URLs for a page: tries viewer HTML og:image, then IIIF manifests
+async function getImageUrlsFromManifest(id, pageNum) {
+  // Strategy 1: og:image from the viewer HTML page (most reliable)
+  for (const viewerUrl of [
+    `https://dlc.mpg.de/image/${id}/${pageNum}/`,
+    `https://dlc.mpg.de/fullscreen/${id}/${pageNum}/`,
+  ]) {
+    try {
+      const r = await fetch(viewerUrl);
+      if (!r.ok) continue;
+      const html = await r.text();
+      const m = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
+             || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+      if (m?.[1]) return { fullUrl: m[1], thumbUrl: m[1] };
+    } catch (_) {}
+  }
+
+  // Strategy 2: IIIF manifests (full record + page-specific)
+  for (const [manifestUrl, manifestIdx] of [
+    [`https://dlc.mpg.de/api/v2/records/${id}/manifest/`, pageNum - 1],
+    [`https://dlc.mpg.de/api/v2/records/${id}/pages/${pageNum}/manifest/`, 0],
+  ]) {
+    try {
+      const r = await fetch(manifestUrl);
+      if (!r.ok) continue;
+      const manifest = await r.json();
+      const result = parseManifest(manifest, manifestIdx);
+      if (result) return result;
+    } catch (_) {}
   }
 
   return null;
@@ -529,8 +560,8 @@ async function loadFromUrl(url) {
   // 1. Get image URLs from IIIF manifest
   let urls = null;
   try { urls = await getImageUrlsFromManifest(id, pageNum); } catch (_) {}
-  const fullUrl = urls?.fullUrl || `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!1500,2000/0/default.jpg`;
-  const thumbUrl = urls?.thumbUrl || `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!400,400/0/default.jpg`;
+  const fullUrl = urls?.fullUrl || null;
+  const thumbUrl = urls?.thumbUrl || null;
 
   // 2. Display image via weserv.nl proxy (bypasses hotlink & CORS restrictions)
   function weservUrl(u) {
