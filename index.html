@@ -478,63 +478,96 @@ function imageFromCanvas(canvas) {
 async function getImageUrlsFromManifest(id, pageNum) {
   const page = String(pageNum).padStart(8, '0');
 
+  // Step 1: Fetch the viewer page HTML to find the real IIIF manifest URL
+  let realManifestUrl = null;
   try {
-    const manifestUrl = `https://dlc.mpg.de/api/v2/records/${id}/manifest/`;
-    console.log('[preview] fetching manifest', manifestUrl);
-    const r = await fetch(manifestUrl);
-    console.log('[preview] manifest status', r.status, r.headers.get('access-control-allow-origin'));
-    if (!r.ok) throw new Error('manifest ' + r.status);
-    const manifest = await r.json();
-    const idx = pageNum - 1;
-    console.log('[preview] manifest keys', Object.keys(manifest), 'idx', idx);
-
-    // IIIF v2: canvases embedded with image data
-    const canvases = manifest?.sequences?.[0]?.canvases;
-    if (canvases?.[idx]) {
-      const resource = canvases[idx]?.images?.[0]?.resource;
-      const svcId = resource?.service?.['@id'] || resource?.service?.[0]?.['@id'];
-      console.log('[preview] v2 svcId', svcId, 'resource@id', resource?.['@id']);
-      if (svcId) return {
-        fullUrl: `${svcId}/full/!1500,2000/0/default.jpg`,
-        thumbUrl: `${svcId}/full/!400,400/0/default.jpg`
-      };
-      if (resource?.['@id']) return { fullUrl: resource['@id'], thumbUrl: resource['@id'] };
+    const viewerUrl = `https://dlc.mpg.de/image/${id}/${pageNum}/`;
+    console.log('[preview] fetching viewer page', viewerUrl);
+    const vr = await fetch(viewerUrl);
+    console.log('[preview] viewer status', vr.status);
+    if (vr.ok) {
+      const html = await vr.text();
+      // Look for IIIF manifest URL in HTML (data attributes, JS vars, JSON-LD)
+      const patterns = [
+        /data-iiif-manifest=["']([^"']+)["']/,
+        /manifestUri['":\s]+["']([^"']+manifest[^"']*)["']/i,
+        /["'](https?:\/\/[^"'\s]+\/manifest(?:\.json|\/)[^"'\s]*)["']/,
+        /["'](https?:\/\/[^"'\s]+manifest\.json[^"'\s]*)["']/,
+      ];
+      for (const pat of patterns) {
+        const m = html.match(pat);
+        if (m) { realManifestUrl = m[1]; console.log('[preview] found manifest in HTML', realManifestUrl); break; }
+      }
+      // Also scan for default.jpg image URLs directly in the HTML
+      const imgPat = /["'](https?:\/\/[^"'\s<>]+\/default\.jpg)["']/g;
+      let imgM;
+      while ((imgM = imgPat.exec(html)) !== null) {
+        const u = imgM[1];
+        // Prefer a URL that looks like a specific page (not just /full/...)
+        if (u.includes(page) || u.includes(`/${pageNum}/`) || u.includes(`/${pageNum}_`)) {
+          console.log('[preview] found image URL in HTML', u);
+          return { fullUrl: u, thumbUrl: u };
+        }
+      }
     }
+  } catch (e) { console.log('[preview] viewer page error', e.message); }
 
-    // IIIF v3: canvas references — fetch each canvas separately
-    const items = manifest?.items;
-    console.log('[preview] v3 items count', items?.length);
-    if (items?.[idx]) {
-      // Try embedded data first
-      const embedded = imageFromCanvas(items[idx]);
-      if (embedded) { console.log('[preview] embedded', embedded); return embedded; }
+  // Step 2: Try the manifest URL (either discovered or the API endpoint)
+  const manifestUrlsToTry = [
+    realManifestUrl,
+    `https://dlc.mpg.de/api/v2/records/${id}/manifest/`,
+  ].filter(Boolean);
 
-      // Follow canvas URL to get embedded data
-      const canvasUrl = items[idx]?.id;
-      console.log('[preview] canvas url', canvasUrl);
-      if (canvasUrl) {
-        try {
-          const cr = await fetch(canvasUrl);
-          console.log('[preview] canvas status', cr.status);
-          if (cr.ok) {
-            const canvasData = await cr.json();
-            const result = imageFromCanvas(canvasData);
-            if (result) { console.log('[preview] canvas result', result); return result; }
-            console.log('[preview] canvas data keys', Object.keys(canvasData));
-          }
-        } catch (e) { console.log('[preview] canvas fetch error', e.message); }
+  for (const manifestUrl of manifestUrlsToTry) {
+    try {
+      console.log('[preview] fetching manifest', manifestUrl);
+      const r = await fetch(manifestUrl);
+      console.log('[preview] manifest status', r.status);
+      if (!r.ok) continue;
+      const text = await r.text();
+      if (!text.trim().startsWith('{') && !text.trim().startsWith('[')) {
+        console.log('[preview] manifest returned HTML, not JSON');
+        continue;
+      }
+      const manifest = JSON.parse(text);
+      const idx = pageNum - 1;
+      console.log('[preview] manifest keys', Object.keys(manifest), 'idx', idx);
+
+      // IIIF v2
+      const canvases = manifest?.sequences?.[0]?.canvases;
+      if (canvases?.[idx]) {
+        const resource = canvases[idx]?.images?.[0]?.resource;
+        const svcId = resource?.service?.['@id'] || resource?.service?.[0]?.['@id'];
+        console.log('[preview] v2 svcId', svcId);
+        if (svcId) return { fullUrl: `${svcId}/full/!1500,2000/0/default.jpg`, thumbUrl: `${svcId}/full/!400,400/0/default.jpg` };
+        if (resource?.['@id']) return { fullUrl: resource['@id'], thumbUrl: resource['@id'] };
       }
 
-      // Construct URL from known dlc.mpg.de pattern
-      const constructed = {
-        fullUrl: `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!1500,2000/0/default.jpg`,
-        thumbUrl: `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!400,400/0/default.jpg`
-      };
-      console.log('[preview] constructed', constructed);
-      return constructed;
-    }
-    console.log('[preview] no matching canvas found');
-  } catch (e) { console.log('[preview] manifest error', e.message); }
+      // IIIF v3
+      const items = manifest?.items;
+      console.log('[preview] v3 items count', items?.length);
+      if (items?.[idx]) {
+        const embedded = imageFromCanvas(items[idx]);
+        if (embedded) { console.log('[preview] embedded', embedded); return embedded; }
+        const canvasUrl = items[idx]?.id;
+        console.log('[preview] canvas url', canvasUrl);
+        if (canvasUrl) {
+          try {
+            const cr = await fetch(canvasUrl);
+            if (cr.ok) {
+              const canvasData = await cr.json();
+              const result = imageFromCanvas(canvasData);
+              if (result) return result;
+            }
+          } catch (e) { console.log('[preview] canvas error', e.message); }
+        }
+        return {
+          fullUrl: `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!1500,2000/0/default.jpg`,
+          thumbUrl: `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!400,400/0/default.jpg`
+        };
+      }
+    } catch (e) { console.log('[preview] manifest error', e.message); }
+  }
 
   return null;
 }
