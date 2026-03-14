@@ -697,24 +697,27 @@ async function loadFromUrl(url) {
     const v2Thumb = `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!400,400/0/default.jpg`;
     const candidates = [...new Set([fullUrl, thumbUrl, v2Full, v2Thumb, v1ImageUrl].filter(Boolean))];
 
-    // Pass 0: Microlink API — headless Chrome, решает Anubis (ждём 60 сек)
-    const dlcViewerUrl = `https://dlc.mpg.de/image/${id}/${pageNum}/`;
-    try {
-      origEmpty.textContent = 'Получаю скриншот страницы (до 60 сек)…';
-      // waitForTimeout=55000 даёт Anubis PoW время завершиться, затем делаем скриншот
-      const mlUrl = `https://api.microlink.io/?url=${encodeURIComponent(dlcViewerUrl)}&screenshot=true&waitForTimeout=55000&meta=false`;
-      console.log('[preview] trying microlink', mlUrl);
-      const mlRes = await fetch(mlUrl, { signal: AbortSignal.timeout(90000) });
-      const mlJson = await mlRes.json();
-      console.log('[preview] microlink status', mlJson?.status, 'screenshot', mlJson?.data?.screenshot?.url);
-      const screenshotUrl = mlJson?.data?.screenshot?.url;
-      if (screenshotUrl) {
-        img.src = screenshotUrl;
-        img.style.display = 'block';
-        origEmpty.style.display = 'none';
-        return;
-      }
-    } catch (e) { console.log('[preview] microlink error', e.message); }
+    // Pass 0a: CORS-прокси для v1 image URL (тот же API что OCR — возможно без Anubis)
+    const corsProxies = [
+      u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+      u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+    ];
+    for (const makeProxy of corsProxies) {
+      try {
+        const proxyUrl = makeProxy(v1ImageUrl);
+        console.log('[preview] trying cors proxy', proxyUrl);
+        const r = await fetch(proxyUrl, { signal: AbortSignal.timeout(10000) });
+        if (!r.ok) { console.log('[preview] proxy status', r.status); continue; }
+        const blob = await r.blob();
+        console.log('[preview] proxy blob type', blob.type, 'size', blob.size);
+        if (blob.type.startsWith('image/') || (blob.type === 'application/octet-stream' && blob.size > 5000)) {
+          img.src = URL.createObjectURL(blob);
+          img.style.display = 'block';
+          origEmpty.style.display = 'none';
+          return;
+        }
+      } catch (e) { console.log('[preview] proxy error', e.message); }
+    }
 
     origEmpty.textContent = 'Загружаю изображение…';
 
