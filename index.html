@@ -697,25 +697,45 @@ async function loadFromUrl(url) {
     const v2Thumb = `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!400,400/0/default.jpg`;
     const candidates = [...new Set([fullUrl, thumbUrl, v2Full, v2Thumb, v1ImageUrl].filter(Boolean))];
 
-    // Pass 0: Microlink API — headless Chrome screenshot, решает Anubis автоматически
+    // Pass 0: screenshot services — headless Chrome, решают Anubis автоматически
+    const dlcViewerUrl = `https://dlc.mpg.de/image/${id}/${pageNum}/`;
+
+    // 0a: Microlink API (ждём 15 сек чтобы Anubis успел решиться)
     try {
       origEmpty.textContent = 'Получаю скриншот страницы…';
-      const dlcViewerUrl = `https://dlc.mpg.de/image/${id}/${pageNum}/`;
-      const mlRes = await fetch(
-        `https://api.microlink.io/?url=${encodeURIComponent(dlcViewerUrl)}&screenshot=true`,
-        { signal: AbortSignal.timeout(30000) }
-      );
-      if (mlRes.ok) {
-        const mlJson = await mlRes.json();
-        const screenshotUrl = mlJson?.data?.screenshot?.url;
-        if (screenshotUrl) {
-          img.src = screenshotUrl;
-          img.style.display = 'block';
-          origEmpty.style.display = 'none';
-          return;
-        }
+      const mlUrl = `https://api.microlink.io/?url=${encodeURIComponent(dlcViewerUrl)}&screenshot=true&waitForTimeout=15000&meta=false`;
+      console.log('[preview] trying microlink', mlUrl);
+      const mlRes = await fetch(mlUrl, { signal: AbortSignal.timeout(40000) });
+      const mlJson = await mlRes.json();
+      console.log('[preview] microlink response', mlJson?.status, mlJson?.data?.screenshot?.url);
+      const screenshotUrl = mlJson?.data?.screenshot?.url;
+      if (screenshotUrl) {
+        img.src = screenshotUrl;
+        img.style.display = 'block';
+        origEmpty.style.display = 'none';
+        return;
       }
-    } catch (_) {}
+    } catch (e) { console.log('[preview] microlink error', e.message); }
+
+    // 0b: thum.io — запасной сервис скриншотов
+    try {
+      const thumbUrl2 = `https://image.thum.io/get/width/1280/crop/900/${encodeURIComponent(dlcViewerUrl)}`;
+      console.log('[preview] trying thum.io', thumbUrl2);
+      const loaded = await new Promise(resolve => {
+        const t = new Image();
+        t.onload = () => resolve(true);
+        t.onerror = () => resolve(false);
+        t.src = thumbUrl2;
+      });
+      console.log('[preview] thum.io loaded', loaded);
+      if (loaded) {
+        img.src = thumbUrl2;
+        img.style.display = 'block';
+        origEmpty.style.display = 'none';
+        return;
+      }
+    } catch (e) { console.log('[preview] thum.io error', e.message); }
+
     origEmpty.textContent = 'Загружаю изображение…';
 
     // Pass 1: fetch() with credentials
