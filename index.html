@@ -417,6 +417,37 @@ const PROMPT_TEXT = `Ты — специалист по немецкой юри�
 
 let lastResult = null;
 
+// Screenshot server (optional local Node.js server — see screenshot-server/)
+const SCREENSHOT_SERVER = 'http://localhost:3001';
+let screenshotServerAvailable = false;
+
+async function checkScreenshotServer() {
+  try {
+    const r = await fetch(`${SCREENSHOT_SERVER}/ping`, { signal: AbortSignal.timeout(800) });
+    screenshotServerAvailable = r.ok;
+  } catch (_) {
+    screenshotServerAvailable = false;
+  }
+  updateScreenshotServerIndicator();
+}
+
+function updateScreenshotServerIndicator() {
+  const el = document.getElementById('screenshot-server-indicator');
+  if (!el) return;
+  if (screenshotServerAvailable) {
+    el.textContent = '● Скриншот-сервер подключён';
+    el.style.color = '#6abf69';
+  } else {
+    el.textContent = '○ Скриншот-сервер не запущен';
+    el.style.color = 'var(--ink)';
+    el.style.opacity = '.5';
+  }
+}
+
+// Check once on load, then every 10 seconds
+checkScreenshotServer();
+setInterval(checkScreenshotServer, 10000);
+
 // Persist API key in localStorage
 const apikeyInput = document.getElementById('apikey-input');
 const apikeyBar = document.getElementById('apikey-bar');
@@ -614,7 +645,39 @@ async function loadFromUrl(url) {
   trans.innerHTML = '';
   document.getElementById('copy-btn').style.display = 'none';
 
-  // 1. Get image URLs from IIIF manifest
+  // 1. Screenshot server path (bypasses Anubis, shows real page, uses screenshot for translation)
+  if (screenshotServerAvailable) {
+    const dlcViewerUrl = `https://dlc.mpg.de/image/${id}/${pageNum}/`;
+    origEmpty.textContent = 'Делаю скриншот страницы…';
+    try {
+      const screenshotUrl = `${SCREENSHOT_SERVER}/screenshot?url=${encodeURIComponent(dlcViewerUrl)}`;
+      const r = await fetch(screenshotUrl, { signal: AbortSignal.timeout(60000) });
+      if (r.ok) {
+        const blob = await r.blob();
+        if (blob.type.startsWith('image/')) {
+          const dataUrl = await new Promise(resolve => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target.result);
+            reader.readAsDataURL(blob);
+          });
+          img.src = dataUrl;
+          img.style.display = 'block';
+          origEmpty.style.display = 'none';
+          loading.childNodes[loading.childNodes.length - 1].textContent = ' Перевожу скриншот…';
+
+          // Translate the screenshot directly (as base64)
+          const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+          await translate(b64, blob.type);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('[screenshot] server error, falling back:', err.message);
+    }
+    // Server responded but failed — fall through to standard flow
+  }
+
+  // 2. Standard flow: Get image URLs from IIIF manifest
   let urls = null;
   try { urls = await getImageUrlsFromManifest(id, pageNum); } catch (_) {}
   const fullUrl = urls?.fullUrl || null;
@@ -627,16 +690,35 @@ async function loadFromUrl(url) {
   // v1 image URL (same API that serves OCR text — likely accessible)
   const v1ImageUrl = `https://dlc.mpg.de/api/v1/records/${id}/files/images/${page}.jpg`;
 
-  // 2. Display image: try direct fetch (CORS), then img.src fallback, then link
+  // 3. Display image
   img.style.display = 'none';
   (async () => {
-    // Always include hardcoded v2 IIIF pattern in case manifest fetch failed
     const v2Full = `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!1500,2000/0/default.jpg`;
     const v2Thumb = `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!400,400/0/default.jpg`;
     const candidates = [...new Set([fullUrl, thumbUrl, v2Full, v2Thumb, v1ImageUrl].filter(Boolean))];
-    console.log('[preview] display candidates', candidates);
 
-    // Pass 1a: fetch() with credentials (sends cookies — works if user has Anubis clearance)
+    // Pass 0: Microlink API — headless Chrome screenshot, решает Anubis автоматически
+    try {
+      origEmpty.textContent = 'Получаю скриншот страницы…';
+      const dlcViewerUrl = `https://dlc.mpg.de/image/${id}/${pageNum}/`;
+      const mlRes = await fetch(
+        `https://api.microlink.io/?url=${encodeURIComponent(dlcViewerUrl)}&screenshot=true`,
+        { signal: AbortSignal.timeout(30000) }
+      );
+      if (mlRes.ok) {
+        const mlJson = await mlRes.json();
+        const screenshotUrl = mlJson?.data?.screenshot?.url;
+        if (screenshotUrl) {
+          img.src = screenshotUrl;
+          img.style.display = 'block';
+          origEmpty.style.display = 'none';
+          return;
+        }
+      }
+    } catch (_) {}
+    origEmpty.textContent = 'Загружаю изображение…';
+
+    // Pass 1: fetch() with credentials
     for (const u of candidates) {
       try {
         const r = await fetch(u, { credentials: 'include' });
@@ -650,7 +732,7 @@ async function loadFromUrl(url) {
       } catch (_) {}
     }
 
-    // Pass 1b: fetch() without credentials (works if CORS enabled on image API)
+    // Pass 2: fetch() without credentials
     for (const u of candidates) {
       try {
         const r = await fetch(u);
@@ -664,7 +746,7 @@ async function loadFromUrl(url) {
       } catch (_) {}
     }
 
-    // Pass 2: img.src directly (no CORS check, no referrerPolicy override)
+    // Pass 3: img.src directly
     for (const u of candidates) {
       const loaded = await new Promise(resolve => {
         const t = new Image();
@@ -680,18 +762,18 @@ async function loadFromUrl(url) {
       }
     }
 
-    // All failed — show placeholder with link to original
+    // All failed
     img.style.display = 'none';
     origEmpty.innerHTML = `<div style="text-align:center;padding:2rem 1rem">
       <div style="font-size:3rem;opacity:.3;margin-bottom:1rem">📄</div>
-      <div style="font-size:0.8rem;color:var(--ink);margin-bottom:1rem">Изображение недоступно напрямую<br><small style="opacity:.6">(сервер dlc.mpg.de требует авторизацию)</small></div>
+      <div style="font-size:0.8rem;color:var(--ink);margin-bottom:0.8rem">Не удалось загрузить изображение</div>
       <a href="https://dlc.mpg.de/image/${id}/${pageNum}/" target="_blank"
         style="color:var(--gold);font-size:0.85rem;text-decoration:underline">Открыть оригинал в новой вкладке ↗</a>
     </div>`;
     origEmpty.style.display = 'block';
   })();
 
-  // 3. Fetch OCR text (v1 API)
+  // 4. Fetch OCR text (v1 API)
   const dbg = [];
   let ocrText = null;
   try {

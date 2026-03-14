@@ -1,0 +1,13 @@
+{
+  "name": "gothic-reader-screenshot-server",
+  "version": "1.0.0",
+  "description": "Local screenshot proxy for gothic-reader — bypasses Anubis bot protection via headless browser",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "playwright": "^1.44.0"
+  }
+}
