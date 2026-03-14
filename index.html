@@ -677,104 +677,25 @@ async function loadFromUrl(url) {
     // Server responded but failed — fall through to standard flow
   }
 
-  // 2. Standard flow: Get image URLs from IIIF manifest
-  let urls = null;
-  try { urls = await getImageUrlsFromManifest(id, pageNum); } catch (_) {}
-  const fullUrl = urls?.fullUrl || null;
-  const thumbUrl = urls?.thumbUrl || null;
-  // Fallback URLs for Claude API (Anthropic servers fetch these, no CORS needed)
-  const claudeUrl = urls?.fullUrl
-    || `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!1500,2000/0/default.jpg`;
-  const claudeThumb = urls?.thumbUrl
-    || `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!400,400/0/default.jpg`;
-  // v1 image URL (same API that serves OCR text — likely accessible)
-  const v1ImageUrl = `https://dlc.mpg.de/api/v1/records/${id}/files/images/${page}.jpg`;
+  // 2. Открываем оригинал в новой вкладке — изображения dlc.mpg.de требуют авторизации
+  //    и недоступны для прямой загрузки из браузера
+  const dlcViewerUrl = `https://dlc.mpg.de/image/${id}/${pageNum}/`;
+  window.open(dlcViewerUrl, '_blank');
 
-  // 3. Display image
   img.style.display = 'none';
-  (async () => {
-    const v2Full = `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!1500,2000/0/default.jpg`;
-    const v2Thumb = `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!400,400/0/default.jpg`;
-    const candidates = [...new Set([fullUrl, thumbUrl, v2Full, v2Thumb, v1ImageUrl].filter(Boolean))];
+  origEmpty.innerHTML = `<div style="text-align:center;padding:2rem 1rem;font-size:0.82rem;color:var(--ink)">
+    Оригинал открыт в соседней вкладке
+    <div style="margin-top:0.6rem">
+      <a href="${dlcViewerUrl}" target="_blank" style="color:var(--gold);text-decoration:underline">
+        Открыть снова ↗
+      </a>
+    </div>
+  </div>`;
+  origEmpty.style.display = 'block';
 
-    // Pass 0a: CORS-прокси для v1 image URL (тот же API что OCR — возможно без Anubis)
-    const corsProxies = [
-      u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-      u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-    ];
-    for (const makeProxy of corsProxies) {
-      try {
-        const proxyUrl = makeProxy(v1ImageUrl);
-        console.log('[preview] trying cors proxy', proxyUrl);
-        const r = await fetch(proxyUrl, { signal: AbortSignal.timeout(10000) });
-        if (!r.ok) { console.log('[preview] proxy status', r.status); continue; }
-        const blob = await r.blob();
-        console.log('[preview] proxy blob type', blob.type, 'size', blob.size);
-        if (blob.type.startsWith('image/') || (blob.type === 'application/octet-stream' && blob.size > 5000)) {
-          img.src = URL.createObjectURL(blob);
-          img.style.display = 'block';
-          origEmpty.style.display = 'none';
-          return;
-        }
-      } catch (e) { console.log('[preview] proxy error', e.message); }
-    }
-
-    origEmpty.textContent = 'Загружаю изображение…';
-
-    // Pass 1: fetch() with credentials
-    for (const u of candidates) {
-      try {
-        const r = await fetch(u, { credentials: 'include' });
-        if (!r.ok) continue;
-        const blob = await r.blob();
-        if (!blob.type.startsWith('image/') && blob.type !== 'application/octet-stream') continue;
-        img.src = URL.createObjectURL(blob);
-        img.style.display = 'block';
-        origEmpty.style.display = 'none';
-        return;
-      } catch (_) {}
-    }
-
-    // Pass 2: fetch() without credentials
-    for (const u of candidates) {
-      try {
-        const r = await fetch(u);
-        if (!r.ok) continue;
-        const blob = await r.blob();
-        if (!blob.type.startsWith('image/') && blob.type !== 'application/octet-stream') continue;
-        img.src = URL.createObjectURL(blob);
-        img.style.display = 'block';
-        origEmpty.style.display = 'none';
-        return;
-      } catch (_) {}
-    }
-
-    // Pass 3: img.src directly
-    for (const u of candidates) {
-      const loaded = await new Promise(resolve => {
-        const t = new Image();
-        t.onload = () => resolve(true);
-        t.onerror = () => resolve(false);
-        t.src = u;
-      });
-      if (loaded) {
-        img.src = u;
-        img.style.display = 'block';
-        origEmpty.style.display = 'none';
-        return;
-      }
-    }
-
-    // All failed
-    img.style.display = 'none';
-    origEmpty.innerHTML = `<div style="text-align:center;padding:2rem 1rem">
-      <div style="font-size:3rem;opacity:.3;margin-bottom:1rem">📄</div>
-      <div style="font-size:0.8rem;color:var(--ink);margin-bottom:0.8rem">Не удалось загрузить изображение</div>
-      <a href="https://dlc.mpg.de/image/${id}/${pageNum}/" target="_blank"
-        style="color:var(--gold);font-size:0.85rem;text-decoration:underline">Открыть оригинал в новой вкладке ↗</a>
-    </div>`;
-    origEmpty.style.display = 'block';
-  })();
+  // Fallback URLs for Claude API
+  const claudeUrl = `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!1500,2000/0/default.jpg`;
+  const claudeThumb = `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!400,400/0/default.jpg`;
 
   // 4. Fetch OCR text (v1 API)
   const dbg = [];
