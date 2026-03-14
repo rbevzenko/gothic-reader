@@ -172,6 +172,7 @@
 
   /* Image */
   #orig-img { max-width: 100%; border: 1px solid var(--border); display: none; }
+  #orig-frame { display: none; width: 100%; height: 580px; border: 1px solid var(--border); }
 
   /* Translation */
   #translation { font-size: 0.88rem; }
@@ -340,6 +341,7 @@
       </div>
       <div class="panel-body">
         <img id="orig-img" alt="оригинал" referrerpolicy="no-referrer">
+        <iframe id="orig-frame" title="оригинал" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
         <div class="empty" id="orig-empty">Загрузите скриншот страницы</div>
       </div>
     </div>
@@ -605,6 +607,9 @@ async function loadFromUrl(url) {
   origEmpty.style.display = 'block';
   const img = document.getElementById('orig-img');
   img.style.display = 'none';
+  const origFrame = document.getElementById('orig-frame');
+  origFrame.src = '';
+  origFrame.style.display = 'none';
 
   // Show translation loading spinner right away
   const loading = document.getElementById('loading');
@@ -665,15 +670,12 @@ async function loadFromUrl(url) {
       }
     }
 
-    // All failed — show debug info + link
+    // All failed — show iframe with the DLC viewer page (Anubis challenge can be solved interactively)
     img.style.display = 'none';
-    origEmpty.innerHTML = `<div style="padding:1rem;text-align:center;font-size:0.85rem;color:var(--ink)">
-      Предпросмотр недоступен<br>
-      <small style="opacity:.6;word-break:break-all">${candidates.map((u,i)=>`[${i}] ${u}`).join('<br>')}</small><br>
-      <a href="https://dlc.mpg.de/fullscreen/${id}/${pageNum}/" target="_blank"
-        style="color:var(--gold)">Открыть оригинал ↗</a>
-    </div>`;
-    origEmpty.style.display = 'block';
+    origEmpty.style.display = 'none';
+    const f = document.getElementById('orig-frame');
+    f.src = `https://dlc.mpg.de/image/${id}/${pageNum}/`;
+    f.style.display = 'block';
   })();
 
   // 3. Fetch OCR text (v1 API)
