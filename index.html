@@ -573,10 +573,12 @@ async function loadFromUrl(url) {
   // v1 image URL (same API that serves OCR text — likely accessible)
   const v1ImageUrl = `https://dlc.mpg.de/api/v1/records/${id}/files/images/${page}.jpg`;
 
-  // 2. Display image: try direct fetch (CORS-enabled API), then v1, then link
+  // 2. Display image: try direct fetch (CORS), then img.src fallback, then link
   img.style.display = 'none';
   (async () => {
     const candidates = [fullUrl, thumbUrl, v1ImageUrl].filter(Boolean);
+
+    // Pass 1: fetch() → blob URL (works if CORS enabled on image API)
     for (const u of candidates) {
       try {
         const r = await fetch(u);
@@ -589,10 +591,28 @@ async function loadFromUrl(url) {
         return;
       } catch (_) {}
     }
-    // All failed — show link
+
+    // Pass 2: img.src directly (no CORS check, no referrerPolicy override)
+    for (const u of candidates) {
+      const loaded = await new Promise(resolve => {
+        const t = new Image();
+        t.onload = () => resolve(true);
+        t.onerror = () => resolve(false);
+        t.src = u;
+      });
+      if (loaded) {
+        img.src = u;
+        img.style.display = 'block';
+        origEmpty.style.display = 'none';
+        return;
+      }
+    }
+
+    // All failed — show debug info + link
     img.style.display = 'none';
     origEmpty.innerHTML = `<div style="padding:1rem;text-align:center;font-size:0.85rem;color:var(--ink)">
       Предпросмотр недоступен<br>
+      <small style="opacity:.6;word-break:break-all">${candidates[0] || '(нет URL)'}</small><br>
       <a href="https://dlc.mpg.de/fullscreen/${id}/${pageNum}/" target="_blank"
         style="color:var(--gold)">Открыть оригинал ↗</a>
     </div>`;
