@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gothic Law Reader</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -289,6 +290,97 @@
     letter-spacing: 0.1em;
   }
 
+  /* PDF section */
+  #pdf-section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  #pdf-drop-zone {
+    background: var(--parchment);
+    border: 2px dashed var(--parchment-shadow);
+    border-radius: 2px;
+    padding: 1rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  #pdf-drop-zone:hover, #pdf-drop-zone.drag { border-color: var(--gold); background: var(--latin-bg); }
+  #pdf-drop-zone .icon { font-size: 1.3rem; margin-bottom: 0.25rem; }
+  #pdf-drop-zone strong { font-size: 0.85rem; color: #5a3e1a; }
+  #pdf-drop-zone span { display: block; font-size: 0.7rem; color: #8a6040; margin-top: 0.2rem; }
+
+  #pdf-pages-bar {
+    display: none;
+    border-top: 1px solid var(--border);
+  }
+  #pdf-pages-header {
+    background: var(--parchment-dark);
+    border-bottom: 1px solid var(--border);
+    padding: 0.4rem 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+  #pdf-pages-header span {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--gold);
+  }
+  #pdf-progress {
+    font-size: 0.68rem;
+    color: #8a6040;
+  }
+  #pdf-pages-strip {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.6rem 1rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    min-height: 90px;
+  }
+  #pdf-pages-strip::-webkit-scrollbar { height: 4px; }
+  #pdf-pages-strip::-webkit-scrollbar-track { background: var(--parchment-dark); }
+  #pdf-pages-strip::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .pdf-thumb {
+    flex-shrink: 0;
+    cursor: pointer;
+    border: 2px solid var(--parchment-shadow);
+    border-radius: 2px;
+    position: relative;
+    transition: border-color 0.15s;
+    background: var(--parchment-dark);
+  }
+  .pdf-thumb:hover { border-color: var(--gold); }
+  .pdf-thumb.selected { border-color: var(--red); }
+  .pdf-thumb canvas { display: block; height: 70px; width: auto; }
+  .pdf-thumb .page-num {
+    position: absolute;
+    bottom: 2px;
+    right: 3px;
+    font-size: 0.55rem;
+    color: var(--ink);
+    opacity: 0.7;
+    line-height: 1;
+  }
+  .pdf-thumb-loading {
+    flex-shrink: 0;
+    width: 50px;
+    height: 74px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.6rem;
+    color: #8a6040;
+    background: var(--parchment-dark);
+    border: 2px solid var(--parchment-shadow);
+    border-radius: 2px;
+  }
+
   @media (max-width: 700px) {
     #columns { grid-template-columns: 1fr; }
   }
@@ -315,6 +407,24 @@
     <label for="url-input">Ссылка dlc.mpg.de:</label>
     <input id="url-input" type="url" placeholder="https://dlc.mpg.de/fullscreen/mpirg_sisis_139686/5/">
     <button id="url-btn">Перевести</button>
+  </div>
+
+  <div class="or-divider">— или загрузите PDF —</div>
+
+  <div id="pdf-section">
+    <div id="pdf-drop-zone">
+      <div class="icon">📕</div>
+      <strong>Перетащите PDF-файл</strong> или нажмите для выбора
+      <span>Программа разобьёт его на страницы — кликните нужную, затем переведите</span>
+      <input id="pdf-file-input" type="file" accept="application/pdf" style="display:none">
+    </div>
+    <div id="pdf-pages-bar">
+      <div id="pdf-pages-header">
+        <span>Страницы PDF</span>
+        <span id="pdf-progress"></span>
+      </div>
+      <div id="pdf-pages-strip"></div>
+    </div>
   </div>
 
   <div class="or-divider">— или загрузите скриншот —</div>
@@ -974,6 +1084,142 @@ function render(r) {
   }
 
   trans.innerHTML = html;
+}
+
+// ── PDF support ──────────────────────────────────────────────────────────────
+
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+let pdfDoc = null;
+let pdfPageCanvases = {};   // pageNum → full-res canvas (lazy)
+let selectedPdfPage = null;
+
+const pdfDropZone  = document.getElementById('pdf-drop-zone');
+const pdfFileInput = document.getElementById('pdf-file-input');
+
+pdfDropZone.addEventListener('click', () => pdfFileInput.click());
+pdfDropZone.addEventListener('dragover', e => { e.preventDefault(); pdfDropZone.classList.add('drag'); });
+pdfDropZone.addEventListener('dragleave', () => pdfDropZone.classList.remove('drag'));
+pdfDropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  pdfDropZone.classList.remove('drag');
+  const f = e.dataTransfer.files[0];
+  if (f && f.type === 'application/pdf') loadPdf(f);
+});
+pdfFileInput.addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (f) loadPdf(f);
+});
+
+async function loadPdf(file) {
+  const progressEl = document.getElementById('pdf-progress');
+  const strip      = document.getElementById('pdf-pages-strip');
+  const pagesBar   = document.getElementById('pdf-pages-bar');
+
+  pdfDoc = null;
+  pdfPageCanvases = {};
+  selectedPdfPage = null;
+  strip.innerHTML = '';
+  pagesBar.style.display = 'block';
+  progressEl.textContent = 'Загружаю…';
+
+  const arrayBuffer = await file.arrayBuffer();
+  pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const total = pdfDoc.numPages;
+  progressEl.textContent = `0 / ${total}`;
+
+  // Render thumbnails progressively
+  for (let i = 1; i <= total; i++) {
+    const thumb = await renderThumb(i);
+    strip.appendChild(thumb);
+    progressEl.textContent = `${i} / ${total}`;
+  }
+  progressEl.textContent = `${total} стр.`;
+}
+
+async function renderThumb(pageNum) {
+  const page = await pdfDoc.getPage(pageNum);
+  const viewport = page.getViewport({ scale: 1 });
+  const scale = 70 / viewport.height;
+  const scaled = page.getViewport({ scale });
+
+  const canvas = document.createElement('canvas');
+  canvas.width  = Math.round(scaled.width);
+  canvas.height = Math.round(scaled.height);
+  await page.render({ canvasContext: canvas.getContext('2d'), viewport: scaled }).promise;
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'pdf-thumb';
+  wrapper.appendChild(canvas);
+  const label = document.createElement('span');
+  label.className = 'page-num';
+  label.textContent = pageNum;
+  wrapper.appendChild(label);
+
+  wrapper.addEventListener('click', () => selectPdfPage(pageNum, wrapper));
+  return wrapper;
+}
+
+async function selectPdfPage(pageNum, thumbEl) {
+  // Deselect previous
+  document.querySelectorAll('.pdf-thumb.selected').forEach(el => el.classList.remove('selected'));
+  thumbEl.classList.add('selected');
+  selectedPdfPage = pageNum;
+
+  // Render full-res page to canvas if not cached
+  if (!pdfPageCanvases[pageNum]) {
+    const page = await pdfDoc.getPage(pageNum);
+    const viewport = page.getViewport({ scale: 2 });
+    const canvas = document.createElement('canvas');
+    canvas.width  = viewport.width;
+    canvas.height = viewport.height;
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    pdfPageCanvases[pageNum] = canvas;
+  }
+
+  const canvas = pdfPageCanvases[pageNum];
+
+  // Show in left panel as image
+  const dataUrl = canvas.toDataURL('image/png');
+  const img = document.getElementById('orig-img');
+  img.src = dataUrl;
+  img.style.display = 'block';
+  document.getElementById('orig-empty').style.display = 'none';
+  document.getElementById('columns').style.display = 'grid';
+
+  // Reset translation panel
+  document.getElementById('translation').innerHTML = '<div class="empty">Нажмите «Перевести страницу» для перевода</div>';
+  document.getElementById('copy-btn').style.display = 'none';
+  document.getElementById('loading').style.display = 'none';
+
+  // Show translate button for PDF page
+  showPdfTranslateBtn(pageNum, canvas);
+}
+
+function showPdfTranslateBtn(pageNum, canvas) {
+  let btn = document.getElementById('pdf-translate-btn');
+  if (!btn) {
+    btn = document.createElement('button');
+    btn.id = 'pdf-translate-btn';
+    btn.style.cssText = `
+      display:block; margin: 0 0 0.8rem; width:100%;
+      font-family:Georgia,serif; font-size:0.82rem;
+      padding:0.45rem 1rem;
+      background:var(--parchment-dark); border:1px solid var(--border);
+      border-radius:1px; color:var(--ink); cursor:pointer;
+    `;
+    btn.onmouseover = () => btn.style.background = 'var(--parchment-shadow)';
+    btn.onmouseout  = () => btn.style.background = 'var(--parchment-dark)';
+    const transPanel = document.querySelector('#columns .panel:last-child .panel-body');
+    transPanel.insertBefore(btn, transPanel.firstChild);
+  }
+  btn.textContent = `Перевести страницу ${pageNum}`;
+  btn.onclick = () => {
+    const dataUrl = canvas.toDataURL('image/png');
+    const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+    translate(b64, 'image/png');
+  };
 }
 
 // Copy
