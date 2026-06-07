@@ -1,0 +1,27 @@
+server {
+    listen 80;
+    server_name fraktur.app www.fraktur.app;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name fraktur.app www.fraktur.app;
+
+    ssl_certificate     /etc/letsencrypt/live/fraktur.app/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/fraktur.app/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+
+    # Proxy to Node
+    location / {
+        proxy_pass         http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        # Needed for large PDF page images
+        proxy_read_timeout 120s;
+        client_max_body_size 20m;
+    }
+}
