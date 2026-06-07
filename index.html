@@ -1259,7 +1259,8 @@ Regeln:
 1. Lies den Frakturtext genau, beachte archaische Orthographie.
 2. Gib den Text in moderner deutscher Rechtschreibung wieder: ſ→s, Majuskelregeln modernisieren, veraltete Schreibweisen aktualisieren.
 3. Lateinische Passagen bleiben im Original.
-4. Jeder Absatz des Originals = ein separates Element im Array. Fußnoten (am Seitenende, oft mit Ziffern oder Sternchen markiert) ebenfalls als eigene Elemente aufnehmen.
+4. Jeder Absatz des Originals = ein separates Element im Array.
+5. FUßNOTEN PFLICHT. Fußnoten am Seitenende (markiert mit Ziffern 1), 2), Sternchen * usw.) vollständig modernisieren und als eigene Elemente in paragraphs aufnehmen. Keine Fußnote auslassen.
 5. ${latin ? 'Lateinische Fragmente separat mit Übersetzung und Quelle auflisten.' : 'latin_fragments immer als leeres Array zurückgeben.'}
 6. Antworte NUR mit gültigem JSON — kein Markdown, keine Präambel.
 
@@ -1279,8 +1280,9 @@ function PROMPT_TRANSLATE(lang) {
 1. Основной текст — немецкий в Fraktur. Читай точно, учитывая архаичную орфографию.
 2. ${latin ? 'Латинские слова обычно набраны антиквой — выделяй их отдельно.' : 'latin_fragments всегда возвращай пустым массивом.'}
 3. ${latin ? 'Для латинских фрагментов: дай перевод + источник.' : ''}
-4. Каждый абзац оригинала — отдельный элемент массива. Сноски (в нижней части страницы, обычно обозначены цифрами или звёздочками) тоже включай — переводи их как обычный текст.
-5. Отвечай ТОЛЬКО валидным JSON — без markdown, без преамбулы.
+4. Каждый абзац оригинала — отдельный элемент массива.
+5. СНОСКИ ОБЯЗАТЕЛЬНЫ. Сноски в нижней части страницы (обозначены цифрами 1), 2), звёздочками * и т.п.) — переводи их полностью и включай в массив paragraphs как отдельные элементы. Не пропускай ни одну сноску.
+6. Отвечай ТОЛЬКО валидным JSON — без markdown, без преамбулы.
 
 {
   "title": "заголовок на ${lang}, или пустая строка",
@@ -1296,7 +1298,8 @@ Du erhältst OCR-Text einer Seite. Modernisiere die Orthographie und gib den Tex
 
 Regeln:
 1. Modernisiere: ſ→s, veraltete Schreibweisen aktualisieren.
-2. Jeden Absatz separat im Array. Fußnoten ebenfalls als eigene Elemente aufnehmen.
+2. Jeden Absatz separat im Array.
+3. FUßNOTEN PFLICHT. Fußnoten (markiert mit Ziffern 1), 2), Sternchen * usw.) vollständig modernisieren und als eigene Elemente aufnehmen.
 3. ${latin ? 'Lateinische Fragmente separat mit Übersetzung und Quelle.' : 'latin_fragments als leeres Array.'}
 4. Nur gültiges JSON — kein Markdown.
 
@@ -1316,7 +1319,8 @@ function PROMPT_TEXT_TRANSLATE(lang) {
 1. ВСЕ элементы массива paragraphs — ТОЛЬКО на ${lang}.
 2. title ОБЯЗАТЕЛЬНО переведи на ${lang}.
 3. ${latin ? 'Латинские слова выделяй отдельно с переводом и источником.' : 'latin_fragments всегда возвращай пустым массивом.'}
-4. Каждый абзац — отдельный элемент. Сноски тоже переводи и включай как отдельные элементы. Только JSON.
+4. Каждый абзац — отдельный элемент.
+5. СНОСКИ ОБЯЗАТЕЛЬНЫ. Сноски (цифры 1), 2), звёздочки * и т.п.) — переводи полностью, включай в paragraphs. Только JSON.
 
 {
   "title": "заголовок на ${lang}",
