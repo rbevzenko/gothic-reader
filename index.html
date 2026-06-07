@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="de">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Gothic Law Reader</title>
+<title>Gothic Reader — Fraktur Modernisierung</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -15,6 +15,7 @@
     --parchment-shadow: #d4c49a;
     --red: #8b1a1a;
     --gold: #b8860b;
+    --green: #2d6a2d;
     --latin-bg: #f0ead0;
     --panel: #fdf6e3;
     --border: #c4a96b;
@@ -62,34 +63,6 @@
     gap: 1rem;
   }
 
-  /* Upload zone */
-  #upload-zone {
-    background: var(--parchment);
-    border: 2px dashed var(--parchment-shadow);
-    border-radius: 2px;
-    padding: 1rem;
-    text-align: center;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  #upload-zone:hover, #upload-zone.drag { border-color: var(--gold); background: var(--latin-bg); }
-  #upload-zone .icon { font-size: 1.3rem; margin-bottom: 0.25rem; }
-  #upload-zone strong { font-size: 0.85rem; color: #5a3e1a; }
-  #upload-zone span { display: block; font-size: 0.7rem; color: #8a6040; margin-top: 0.2rem; }
-
-  /* Hint */
-  #hint {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 2px;
-    padding: 0.6rem 1rem;
-    font-size: 0.72rem;
-    color: #7a5a30;
-    line-height: 1.6;
-  }
-  #hint strong { color: var(--gold); }
-  #hint code { background: var(--parchment-dark); padding: 0.1em 0.3em; font-size: 0.9em; }
-
   /* API key bar */
   #apikey-bar {
     background: var(--panel);
@@ -122,6 +95,217 @@
   }
   #apikey-saved a { color: var(--gold); cursor: pointer; text-decoration: underline; }
 
+  /* ── Main PDF section ─────────────────────────────── */
+  #pdf-section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  #pdf-drop-zone {
+    background: var(--parchment);
+    border: 2px dashed var(--parchment-shadow);
+    border-radius: 2px;
+    padding: 1.4rem 1rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  #pdf-drop-zone:hover, #pdf-drop-zone.drag { border-color: var(--gold); background: var(--latin-bg); }
+  #pdf-drop-zone .icon { font-size: 1.8rem; margin-bottom: 0.4rem; }
+  #pdf-drop-zone strong { font-size: 1rem; color: #3a2a0a; display: block; margin-bottom: 0.2rem; }
+  #pdf-drop-zone span { font-size: 0.72rem; color: #8a6040; }
+
+  /* Mode bar */
+  #mode-bar {
+    display: none;
+    background: var(--parchment-dark);
+    border-top: 1px solid var(--border);
+    padding: 0.6rem 1rem;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  #mode-bar .mode-label {
+    font-size: 0.72rem;
+    color: #5a3e1a;
+    white-space: nowrap;
+  }
+  .mode-options { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+  .mode-options label {
+    font-size: 0.78rem;
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    cursor: pointer;
+    padding: 0.2rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 1px;
+    background: var(--parchment);
+    transition: background 0.12s;
+  }
+  .mode-options label:has(input:checked) {
+    background: var(--parchment-shadow);
+    border-color: var(--gold);
+  }
+  .mode-options label input { margin: 0; }
+  #translate-lang {
+    font-family: Georgia, serif;
+    font-size: 0.78rem;
+    padding: 0.2rem 0.5rem;
+    border: 1px solid var(--border);
+    background: var(--parchment);
+    color: var(--ink);
+    border-radius: 1px;
+    display: none;
+  }
+  #translate-lang:focus { outline: 1px solid var(--gold); }
+
+  #mode-bar .spacer { flex: 1; }
+
+  #process-all-btn {
+    font-family: Georgia, serif;
+    font-size: 0.85rem;
+    padding: 0.4rem 1.2rem;
+    background: var(--gold);
+    border: 1px solid #8a6008;
+    border-radius: 1px;
+    color: #fff;
+    cursor: pointer;
+    font-weight: bold;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+    transition: background 0.12s;
+  }
+  #process-all-btn:hover { background: #9a7009; }
+  #process-all-btn:disabled { background: var(--parchment-shadow); color: #8a6040; cursor: default; border-color: var(--border); }
+
+  /* Progress bar */
+  #batch-progress {
+    display: none;
+    background: var(--parchment-dark);
+    border-top: 1px solid var(--border);
+    padding: 0.5rem 1rem;
+    align-items: center;
+    gap: 0.8rem;
+  }
+  #progress-wrap {
+    flex: 1;
+    background: var(--parchment-shadow);
+    border-radius: 2px;
+    height: 6px;
+    overflow: hidden;
+  }
+  #progress-fill {
+    height: 100%;
+    background: var(--gold);
+    width: 0%;
+    transition: width 0.3s;
+  }
+  #progress-text {
+    font-size: 0.68rem;
+    color: #5a3e1a;
+    white-space: nowrap;
+    min-width: 90px;
+    text-align: right;
+  }
+  #cancel-btn {
+    font-family: Georgia, serif;
+    font-size: 0.7rem;
+    padding: 0.2rem 0.7rem;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 1px;
+    color: var(--red);
+    cursor: pointer;
+  }
+  #cancel-btn:hover { background: var(--parchment); }
+
+  /* Thumbnails strip */
+  #pdf-pages-bar {
+    display: none;
+    border-top: 1px solid var(--border);
+  }
+  #pdf-pages-header {
+    background: var(--parchment-dark);
+    border-bottom: 1px solid var(--border);
+    padding: 0.35rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  #pdf-pages-header .title {
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--gold);
+    flex: 1;
+  }
+  #pdf-page-count { font-size: 0.65rem; color: #8a6040; }
+
+  #pdf-pages-strip {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.6rem 1rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    min-height: 95px;
+    align-items: center;
+  }
+  #pdf-pages-strip::-webkit-scrollbar { height: 4px; }
+  #pdf-pages-strip::-webkit-scrollbar-track { background: var(--parchment-dark); }
+  #pdf-pages-strip::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .pdf-thumb {
+    flex-shrink: 0;
+    cursor: pointer;
+    border: 2px solid var(--parchment-shadow);
+    border-radius: 2px;
+    position: relative;
+    transition: border-color 0.12s;
+    background: var(--parchment-dark);
+  }
+  .pdf-thumb:hover { border-color: var(--gold); }
+  .pdf-thumb.selected { border-color: var(--red); }
+  .pdf-thumb.done { border-color: var(--green); }
+  .pdf-thumb.done.selected { border-color: var(--red); }
+  .pdf-thumb canvas { display: block; height: 70px; width: auto; }
+  .pdf-thumb .page-num {
+    position: absolute;
+    bottom: 2px; right: 3px;
+    font-size: 0.52rem;
+    color: var(--ink);
+    opacity: 0.65;
+    line-height: 1;
+  }
+  .pdf-thumb .done-mark {
+    position: absolute;
+    top: 2px; right: 3px;
+    font-size: 0.65rem;
+    color: var(--green);
+    display: none;
+  }
+  .pdf-thumb.done .done-mark { display: block; }
+
+  /* Save PDF button */
+  #save-pdf-btn {
+    display: none;
+    font-family: Georgia, serif;
+    font-size: 0.88rem;
+    padding: 0.6rem 1.4rem;
+    background: var(--green);
+    border: 1px solid #1a4a1a;
+    border-radius: 2px;
+    color: #fff;
+    cursor: pointer;
+    width: 100%;
+    letter-spacing: 0.04em;
+    transition: background 0.12s;
+  }
+  #save-pdf-btn:hover { background: #1e5a1e; }
+
   /* Main columns */
   #columns {
     display: grid;
@@ -129,7 +313,6 @@
     gap: 1rem;
     align-items: start;
   }
-
   .panel {
     background: var(--panel);
     border: 1px solid var(--border);
@@ -144,6 +327,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 0.5rem;
   }
   .panel-title {
     font-size: 0.65rem;
@@ -151,6 +335,25 @@
     letter-spacing: 0.12em;
     color: var(--gold);
   }
+  .panel-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.7rem;
+    color: #8a6040;
+  }
+  .panel-nav button {
+    font-family: Georgia, serif;
+    font-size: 0.75rem;
+    padding: 0.1rem 0.5rem;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 1px;
+    cursor: pointer;
+    color: var(--ink);
+  }
+  .panel-nav button:hover { background: var(--parchment); }
+  .panel-nav button:disabled { opacity: 0.35; cursor: default; }
   .panel-body {
     padding: 1rem;
     overflow-y: auto;
@@ -174,7 +377,7 @@
   /* Image */
   #orig-img { max-width: 100%; border: 1px solid var(--border); display: none; }
 
-  /* Translation */
+  /* Translation / result */
   #translation { font-size: 0.88rem; }
 
   .para {
@@ -227,7 +430,6 @@
     font-size: 0.85rem;
     line-height: 1.7;
   }
-
   .title-heading {
     font-style: italic;
     font-size: 1.05rem;
@@ -236,15 +438,38 @@
     margin-bottom: 1.2rem;
     font-weight: normal;
   }
-
   .error {
     color: var(--red);
     font-size: 0.78rem;
     line-height: 1.7;
     word-break: break-all;
   }
-
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Secondary section ───────────────────────────── */
+  #secondary-section {
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  #secondary-toggle {
+    background: var(--parchment-dark);
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--gold);
+    user-select: none;
+  }
+  #secondary-toggle:hover { background: var(--parchment-shadow); }
+  #secondary-toggle .arrow { font-style: normal; transition: transform 0.2s; }
+  #secondary-toggle.open .arrow { transform: rotate(180deg); }
+  #secondary-body { display: none; padding: 0.8rem 1rem; background: var(--panel); }
+  #secondary-body.open { display: block; }
 
   /* URL bar */
   #url-bar {
@@ -257,6 +482,7 @@
     gap: 0.6rem;
     font-size: 0.72rem;
     color: #7a5a30;
+    margin-bottom: 0.6rem;
   }
   #url-bar label { white-space: nowrap; }
   #url-bar input {
@@ -283,103 +509,40 @@
   }
   #url-bar button:hover { background: var(--parchment-shadow); }
 
-  .or-divider {
-    text-align: center;
-    font-size: 0.68rem;
-    color: #8a6040;
-    letter-spacing: 0.1em;
-  }
-
-  /* PDF section */
-  #pdf-section {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 2px;
-    overflow: hidden;
-  }
-  #pdf-drop-zone {
+  /* Upload zone (single image) */
+  #upload-zone {
     background: var(--parchment);
     border: 2px dashed var(--parchment-shadow);
     border-radius: 2px;
-    padding: 1rem;
+    padding: 0.9rem 1rem;
     text-align: center;
     cursor: pointer;
     transition: all 0.15s;
+    font-size: 0.78rem;
+    color: #5a3e1a;
   }
-  #pdf-drop-zone:hover, #pdf-drop-zone.drag { border-color: var(--gold); background: var(--latin-bg); }
-  #pdf-drop-zone .icon { font-size: 1.3rem; margin-bottom: 0.25rem; }
-  #pdf-drop-zone strong { font-size: 0.85rem; color: #5a3e1a; }
-  #pdf-drop-zone span { display: block; font-size: 0.7rem; color: #8a6040; margin-top: 0.2rem; }
+  #upload-zone:hover, #upload-zone.drag { border-color: var(--gold); background: var(--latin-bg); }
 
-  #pdf-pages-bar {
-    display: none;
-    border-top: 1px solid var(--border);
-  }
-  #pdf-pages-header {
-    background: var(--parchment-dark);
-    border-bottom: 1px solid var(--border);
-    padding: 0.4rem 1rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-  }
-  #pdf-pages-header span {
+  .or-divider {
+    text-align: center;
     font-size: 0.65rem;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: var(--gold);
-  }
-  #pdf-progress {
-    font-size: 0.68rem;
     color: #8a6040;
+    letter-spacing: 0.1em;
+    margin: 0.3rem 0;
   }
-  #pdf-pages-strip {
-    display: flex;
-    gap: 0.5rem;
-    padding: 0.6rem 1rem;
-    overflow-x: auto;
-    overflow-y: hidden;
-    min-height: 90px;
-  }
-  #pdf-pages-strip::-webkit-scrollbar { height: 4px; }
-  #pdf-pages-strip::-webkit-scrollbar-track { background: var(--parchment-dark); }
-  #pdf-pages-strip::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
-  .pdf-thumb {
-    flex-shrink: 0;
-    cursor: pointer;
-    border: 2px solid var(--parchment-shadow);
+  #hint {
+    background: var(--panel);
+    border: 1px solid var(--border);
     border-radius: 2px;
-    position: relative;
-    transition: border-color 0.15s;
-    background: var(--parchment-dark);
+    padding: 0.5rem 1rem;
+    font-size: 0.7rem;
+    color: #7a5a30;
+    line-height: 1.6;
+    margin-top: 0.5rem;
   }
-  .pdf-thumb:hover { border-color: var(--gold); }
-  .pdf-thumb.selected { border-color: var(--red); }
-  .pdf-thumb canvas { display: block; height: 70px; width: auto; }
-  .pdf-thumb .page-num {
-    position: absolute;
-    bottom: 2px;
-    right: 3px;
-    font-size: 0.55rem;
-    color: var(--ink);
-    opacity: 0.7;
-    line-height: 1;
-  }
-  .pdf-thumb-loading {
-    flex-shrink: 0;
-    width: 50px;
-    height: 74px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.6rem;
-    color: #8a6040;
-    background: var(--parchment-dark);
-    border: 2px solid var(--parchment-shadow);
-    border-radius: 2px;
-  }
+  #hint strong { color: var(--gold); }
+  #hint code { background: var(--parchment-dark); padding: 0.1em 0.3em; font-size: 0.9em; }
 
   @media (max-width: 700px) {
     #columns { grid-template-columns: 1fr; }
@@ -389,12 +552,13 @@
 <body>
 
 <div id="header">
-  <h1>Gothic Law Reader</h1>
-  <p>Библиотека Макса Планка · Немецкая юриспруденция XIX века</p>
+  <h1>Gothic Reader</h1>
+  <p>Fraktur → Modernes Deutsch · Modernisierung &amp; Übersetzung</p>
 </div>
 
 <div id="app">
 
+  <!-- API key -->
   <div id="apikey-bar">
     <label for="apikey-input">Anthropic API Key:</label>
     <input id="apikey-input" type="password" placeholder="sk-ant-…" autocomplete="off">
@@ -403,166 +567,222 @@
     API ключ сохранён. <a id="apikey-change">Изменить</a>
   </div>
 
-  <div id="url-bar">
-    <label for="url-input">Ссылка dlc.mpg.de:</label>
-    <input id="url-input" type="url" placeholder="https://dlc.mpg.de/fullscreen/mpirg_sisis_139686/5/">
-    <button id="url-btn">Перевести</button>
-  </div>
-
-  <div class="or-divider">— или загрузите PDF —</div>
-
+  <!-- ── Main PDF workflow ── -->
   <div id="pdf-section">
+
     <div id="pdf-drop-zone">
       <div class="icon">📕</div>
-      <strong>Перетащите PDF-файл</strong> или нажмите для выбора
-      <span>Программа разобьёт его на страницы — кликните нужную, затем переведите</span>
+      <strong>PDF-Datei laden</strong>
+      <span>Загрузите PDF-книгу · Программа преобразует готический шрифт в современный текст</span>
       <input id="pdf-file-input" type="file" accept="application/pdf" style="display:none">
     </div>
+
+    <!-- Thumbnails strip -->
     <div id="pdf-pages-bar">
       <div id="pdf-pages-header">
-        <span>Страницы PDF</span>
-        <span id="pdf-progress"></span>
+        <span class="title">Seiten · Страницы</span>
+        <span id="pdf-page-count"></span>
       </div>
       <div id="pdf-pages-strip"></div>
     </div>
+
+    <!-- Mode + Process button -->
+    <div id="mode-bar">
+      <span class="mode-label">Ausgabe · Вывод:</span>
+      <div class="mode-options">
+        <label><input type="radio" name="output-mode" value="modernize" checked> Modernes Deutsch</label>
+        <label>
+          <input type="radio" name="output-mode" value="translate"> Перевод:
+        </label>
+        <select id="translate-lang">
+          <option value="русский">Русский</option>
+          <option value="English">English</option>
+          <option value="français">Français</option>
+          <option value="polski">Polski</option>
+        </select>
+      </div>
+      <div class="spacer"></div>
+      <button id="process-all-btn">▶ Обработать все страницы</button>
+    </div>
+
+    <!-- Progress -->
+    <div id="batch-progress">
+      <div id="progress-wrap"><div id="progress-fill"></div></div>
+      <span id="progress-text">0 / 0</span>
+      <button id="cancel-btn">Отмена</button>
+    </div>
+
   </div>
 
-  <div class="or-divider">— или загрузите скриншот —</div>
+  <!-- Save PDF -->
+  <button id="save-pdf-btn">Сохранить результат как PDF</button>
 
-  <div id="upload-zone">
-    <div class="icon">📄</div>
-    <strong>Перетащите скриншот страницы</strong> или нажмите для выбора
-    <span>PNG · JPG · WebP — скриншот из браузера или скан</span>
-    <input id="file-input" type="file" accept="image/*" style="display:none">
-  </div>
-
-  <div id="hint">
-    <strong>Совет:</strong> вставьте ссылку на страницу с <code>dlc.mpg.de/fullscreen/…</code>
-    и нажмите «Перевести» — приложение само скачает OCR-текст и изображение, переведёт на русский.
-  </div>
-
+  <!-- Page viewer (original + result) -->
   <div id="columns" style="display:none">
 
-    <!-- Left -->
+    <!-- Left: original -->
     <div class="panel">
       <div class="panel-header">
-        <span class="panel-title">Оригинал · Fraktur</span>
+        <span class="panel-title">Original · Fraktur</span>
+        <div class="panel-nav">
+          <button id="nav-prev">←</button>
+          <span id="nav-label"></span>
+          <button id="nav-next">→</button>
+        </div>
       </div>
       <div class="panel-body">
         <img id="orig-img" alt="оригинал" referrerpolicy="no-referrer">
-        <div class="empty" id="orig-empty">Загрузите скриншот страницы</div>
+        <div class="empty" id="orig-empty">Загрузите PDF или выберите страницу</div>
       </div>
     </div>
 
-    <!-- Right -->
+    <!-- Right: result -->
     <div class="panel">
       <div class="panel-header">
-        <span class="panel-title">Перевод · Русский</span>
-        <button id="copy-btn">Копировать</button>
+        <span class="panel-title" id="result-panel-title">Modernes Deutsch</span>
+        <button id="copy-btn">Kopieren</button>
       </div>
       <div class="panel-body">
         <div class="loading" id="loading">
           <span class="spinner">⟳</span>
-          Читаю готический шрифт и перевожу…
+          <span id="loading-msg">Читаю готический шрифт…</span>
         </div>
         <div id="translation">
-          <div class="empty">Здесь появится перевод</div>
+          <div class="empty">Здесь появится результат</div>
         </div>
       </div>
     </div>
 
   </div>
-</div>
+
+  <!-- ── Secondary: single-page (URL / image) ── -->
+  <div id="secondary-section">
+    <div id="secondary-toggle">
+      <span>Einzelseite · Одна страница — URL или изображение</span>
+      <span class="arrow">▾</span>
+    </div>
+    <div id="secondary-body">
+
+      <div id="url-bar">
+        <label for="url-input">dlc.mpg.de:</label>
+        <input id="url-input" type="url" placeholder="https://dlc.mpg.de/fullscreen/…/5/">
+        <button id="url-btn">Перевести</button>
+      </div>
+
+      <div class="or-divider">— или скриншот —</div>
+
+      <div id="upload-zone">
+        📄 <strong>Перетащите скриншот</strong> или нажмите для выбора · PNG · JPG · WebP
+        <input id="file-input" type="file" accept="image/*" style="display:none">
+      </div>
+
+      <div id="hint">
+        <strong>Совет:</strong> ссылки формата <code>dlc.mpg.de/fullscreen/{id}/{page}/</code> — приложение само скачает OCR и изображение.
+        <span id="screenshot-server-indicator" style="margin-left:0.8rem;font-size:0.68rem"></span>
+      </div>
+
+    </div>
+  </div>
+
+</div><!-- #app -->
 
 <script>
-const PROMPT = `Ты — специалист по немецкой юридической литературе XIX века.
-Читаешь тексты, набранные готическим шрифтом (Fraktur), переводишь на русский язык.
+// ── Prompts ───────────────────────────────────────────────────────────────────
+
+const PROMPT_MODERNIZE = `Du bist Experte für deutsche Rechtsliteratur des 19. Jahrhunderts in Frakturschrift.
+Deine Aufgabe: Lies den Text aus dem Bild (Frakturschrift) und gib ihn in modernem Deutsch wieder.
+
+Regeln:
+1. Lies den Frakturtext genau, beachte archaische Orthographie.
+2. Gib den Text in moderner deutscher Rechtschreibung wieder: ſ→s, Majuskelregeln modernisieren, veraltete Schreibweisen aktualisieren.
+3. Lateinische Passagen bleiben im Original.
+4. Jeder Absatz des Originals = ein separates Element im Array.
+5. Antworte NUR mit gültigem JSON — kein Markdown, keine Präambel.
+
+Antwortformat:
+{
+  "title": "Seitentitel auf modernem Deutsch, oder leerer String",
+  "paragraphs": ["erster Absatz", "zweiter Absatz"],
+  "latin_fragments": [
+    { "original": "lateinischer Text", "translation": "Übersetzung", "source": "Quelle" }
+  ]
+}`;
+
+const PROMPT_TRANSLATE = (lang) => `Ты — специалист по немецкой юридической литературе XIX века.
+Читаешь тексты, набранные готическим шрифтом (Fraktur), переводишь на ${lang}.
 
 Правила:
 1. Основной текст — немецкий в Fraktur. Читай точно, учитывая архаичную орфографию.
-2. Латинские слова обычно набраны обычным шрифтом (антиква) — выделяй их отдельно.
-3. Для латинских фрагментов: дай перевод + источник (Дигесты, Институции Юстиниана, Corpus Juris Civilis, общая максима и т.п.)
-4. Юридические термины сохраняй в скобках на немецком/латыни после русского перевода.
-5. ВАЖНО: каждый абзац оригинала — отдельный элемент массива. Порядок и количество абзацев должны точно совпадать.
+2. Латинские слова обычно набраны антиквой — выделяй их отдельно.
+3. Для латинских фрагментов: дай перевод + источник.
+4. Юридические термины сохраняй в скобках на немецком/латыни после перевода.
+5. Каждый абзац оригинала — отдельный элемент массива. Порядок и количество абзацев должны совпадать.
 6. Отвечай ТОЛЬКО валидным JSON — без markdown, без преамбулы.
 
-Формат ответа:
+Формат:
 {
-  "title": "заголовок страницы на русском, или пустая строка если нет",
-  "paragraphs": [
-    "перевод первого абзаца",
-    "перевод второго абзаца"
-  ],
+  "title": "заголовок на ${lang}, или пустая строка",
+  "paragraphs": ["перевод первого абзаца", "перевод второго абзаца"],
   "latin_fragments": [
     { "original": "латинский текст", "translation": "перевод", "source": "источник" }
   ]
 }`;
 
-const PROMPT_TEXT = `Ты — специалист по немецкой юридической литературе XIX века.
-Получаешь OCR-текст страницы, оцифрованной из книги, набранной готическим шрифтом (Fraktur).
-Переведи текст на русский язык.
+const PROMPT_TEXT_MODERNIZE = `Du bist Experte für deutsche Rechtsliteratur des 19. Jahrhunderts in Frakturschrift.
+Du erhältst OCR-Text einer Seite. Modernisiere die Orthographie und gib den Text in modernem Deutsch wieder.
 
-ОБЯЗАТЕЛЬНЫЕ ПРАВИЛА:
-1. ВСЕ элементы массива paragraphs должны содержать ТОЛЬКО русский текст — переводи каждое предложение, каждый заголовок, каждую строку. Никакого немецкого текста в paragraphs!
-2. Поле title ОБЯЗАТЕЛЬНО переведи на русский язык. Никогда не оставляй title на немецком.
-3. Если страница является оглавлением — всё равно переведи каждую строку на русский.
-4. Архаичная немецкая орфография — читай точно, не «исправляй».
-5. Латинские слова выделяй отдельно.
-6. Для латинских фрагментов: дай перевод + источник (Дигесты, Институции и т.п.)
-7. Юридические термины сохраняй в скобках на немецком/латыни ПОСЛЕ русского перевода.
-8. Каждый абзац оригинала — отдельный элемент массива paragraphs. Порядок и количество абзацев должны точно совпадать.
-9. Отвечай ТОЛЬКО валидным JSON — без markdown, без преамбулы.
+Regeln:
+1. Modernisiere: ſ→s, veraltete Schreibweisen aktualisieren.
+2. Lateinische Passagen im Original belassen.
+3. Jeden Absatz separat im Array.
+4. Nur gültiges JSON — kein Markdown.
 
-Формат ответа:
 {
-  "title": "заголовок страницы на русском, или пустая строка если нет",
-  "paragraphs": [
-    "перевод первого абзаца",
-    "перевод второго абзаца"
-  ],
-  "latin_fragments": [
-    { "original": "латинский текст", "translation": "перевод", "source": "источник" }
-  ]
+  "title": "Seitentitel modernisiert, oder leerer String",
+  "paragraphs": ["erster Absatz", ...],
+  "latin_fragments": [{ "original": "...", "translation": "...", "source": "..." }]
 }`;
+
+const PROMPT_TEXT_TRANSLATE = (lang) => `Ты — специалист по немецкой юридической литературе XIX века.
+Получаешь OCR-текст страницы. Переведи на ${lang}.
+
+ПРАВИЛА:
+1. ВСЕ элементы массива paragraphs — ТОЛЬКО на ${lang}. Никакого немецкого в paragraphs.
+2. title ОБЯЗАТЕЛЬНО переведи на ${lang}.
+3. Латинские слова выделяй отдельно.
+4. Юридические термины сохраняй в скобках на немецком/латыни.
+5. Каждый абзац — отдельный элемент. Только JSON.
+
+{
+  "title": "заголовок на ${lang}",
+  "paragraphs": ["..."],
+  "latin_fragments": [{ "original": "...", "translation": "...", "source": "..." }]
+}`;
+
+// ── State ─────────────────────────────────────────────────────────────────────
 
 let lastResult = null;
+let pdfDoc = null;
+let pdfPageImages = {};   // pageNum → { dataUrl, b64 }
+let pdfResults = {};      // pageNum → result object
+let pdfThumbEls = {};     // pageNum → .pdf-thumb element
+let selectedPdfPage = null;
+let batchCancelled = false;
+let totalPages = 0;
 
-// Screenshot server (optional local Node.js server — see screenshot-server/)
 const SCREENSHOT_SERVER = 'http://localhost:3001';
 let screenshotServerAvailable = false;
 
-async function checkScreenshotServer() {
-  try {
-    const r = await fetch(`${SCREENSHOT_SERVER}/ping`, { signal: AbortSignal.timeout(800) });
-    screenshotServerAvailable = r.ok;
-  } catch (_) {
-    screenshotServerAvailable = false;
-  }
-  updateScreenshotServerIndicator();
-}
+// ── API key ───────────────────────────────────────────────────────────────────
 
-function updateScreenshotServerIndicator() {
-  const el = document.getElementById('screenshot-server-indicator');
-  if (!el) return;
-  if (screenshotServerAvailable) {
-    el.textContent = '● Скриншот-сервер подключён';
-    el.style.color = '#6abf69';
-  } else {
-    el.textContent = '○ Скриншот-сервер не запущен';
-    el.style.color = 'var(--ink)';
-    el.style.opacity = '.5';
-  }
-}
-
-// Check once on load, then every 10 seconds
-checkScreenshotServer();
-setInterval(checkScreenshotServer, 10000);
-
-// Persist API key in localStorage
 const apikeyInput = document.getElementById('apikey-input');
-const apikeyBar = document.getElementById('apikey-bar');
+const apikeyBar   = document.getElementById('apikey-bar');
 const apikeySaved = document.getElementById('apikey-saved');
 const STORAGE_KEY = 'gothic_reader_apikey';
+
+function getApiKey() {
+  return localStorage.getItem(STORAGE_KEY) || apikeyInput.value.trim();
+}
 
 function updateApikeyUI() {
   const saved = localStorage.getItem(STORAGE_KEY);
@@ -580,28 +800,495 @@ apikeyInput.addEventListener('change', () => {
   const val = apikeyInput.value.trim();
   if (val) { localStorage.setItem(STORAGE_KEY, val); updateApikeyUI(); }
 });
-
 document.getElementById('apikey-change').addEventListener('click', () => {
   apikeyBar.style.display = 'flex';
   apikeySaved.style.display = 'none';
   apikeyInput.value = localStorage.getItem(STORAGE_KEY) || '';
   apikeyInput.focus();
 });
-
 updateApikeyUI();
 
-// DLC URL loading
+// ── PDF.js setup ──────────────────────────────────────────────────────────────
+
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ── Mode selector ─────────────────────────────────────────────────────────────
+
+const translateLangEl = document.getElementById('translate-lang');
+document.querySelectorAll('input[name="output-mode"]').forEach(r => {
+  r.addEventListener('change', () => {
+    translateLangEl.style.display = r.value === 'translate' && r.checked ? 'inline-block' : 'none';
+    updateResultPanelTitle();
+  });
+});
+
+function getOutputMode() {
+  return document.querySelector('input[name="output-mode"]:checked')?.value || 'modernize';
+}
+function getTranslateLang() {
+  return translateLangEl.value || 'русский';
+}
+function updateResultPanelTitle() {
+  const titleEl = document.getElementById('result-panel-title');
+  if (getOutputMode() === 'modernize') titleEl.textContent = 'Modernes Deutsch';
+  else titleEl.textContent = `Перевод · ${getTranslateLang()}`;
+}
+
+// ── PDF loading ───────────────────────────────────────────────────────────────
+
+const pdfDropZone  = document.getElementById('pdf-drop-zone');
+const pdfFileInput = document.getElementById('pdf-file-input');
+
+pdfDropZone.addEventListener('click', () => pdfFileInput.click());
+pdfDropZone.addEventListener('dragover', e => { e.preventDefault(); pdfDropZone.classList.add('drag'); });
+pdfDropZone.addEventListener('dragleave', () => pdfDropZone.classList.remove('drag'));
+pdfDropZone.addEventListener('drop', e => {
+  e.preventDefault(); pdfDropZone.classList.remove('drag');
+  const f = e.dataTransfer.files[0];
+  if (f && f.type === 'application/pdf') loadPdf(f);
+});
+pdfFileInput.addEventListener('change', e => { if (e.target.files[0]) loadPdf(e.target.files[0]); });
+
+async function loadPdf(file) {
+  // Reset state
+  pdfDoc = null; pdfPageImages = {}; pdfResults = {}; pdfThumbEls = {};
+  selectedPdfPage = null;
+  document.getElementById('pdf-pages-strip').innerHTML = '';
+  document.getElementById('save-pdf-btn').style.display = 'none';
+  document.getElementById('columns').style.display = 'none';
+  document.getElementById('batch-progress').style.display = 'none';
+
+  const pageCountEl = document.getElementById('pdf-page-count');
+  pageCountEl.textContent = 'Загружаю…';
+  document.getElementById('pdf-pages-bar').style.display = 'block';
+  document.getElementById('mode-bar').style.display = 'flex';
+
+  const arrayBuffer = await file.arrayBuffer();
+  pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  totalPages = pdfDoc.numPages;
+  pageCountEl.textContent = `${totalPages} Seiten`;
+
+  // Render thumbnails progressively
+  for (let i = 1; i <= totalPages; i++) {
+    const thumb = await renderThumb(i);
+    document.getElementById('pdf-pages-strip').appendChild(thumb);
+  }
+}
+
+async function renderThumb(pageNum) {
+  const page = await pdfDoc.getPage(pageNum);
+  const vp = page.getViewport({ scale: 70 / page.getViewport({ scale: 1 }).height });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(vp.width);
+  canvas.height = Math.round(vp.height);
+  await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'pdf-thumb';
+  wrapper.appendChild(canvas);
+  const label = document.createElement('span'); label.className = 'page-num'; label.textContent = pageNum;
+  const mark  = document.createElement('span'); mark.className  = 'done-mark'; mark.textContent = '✓';
+  wrapper.appendChild(label); wrapper.appendChild(mark);
+  wrapper.addEventListener('click', () => openPdfPage(pageNum));
+  pdfThumbEls[pageNum] = wrapper;
+  return wrapper;
+}
+
+async function getPdfPageImage(pageNum) {
+  if (pdfPageImages[pageNum]) return pdfPageImages[pageNum];
+  const page = await pdfDoc.getPage(pageNum);
+  const vp = page.getViewport({ scale: 2 });
+  const canvas = document.createElement('canvas');
+  canvas.width = vp.width; canvas.height = vp.height;
+  await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+  const dataUrl = canvas.toDataURL('image/png');
+  const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+  pdfPageImages[pageNum] = { dataUrl, b64 };
+  return pdfPageImages[pageNum];
+}
+
+async function openPdfPage(pageNum) {
+  // Select thumbnail
+  Object.values(pdfThumbEls).forEach(el => el.classList.remove('selected'));
+  pdfThumbEls[pageNum]?.classList.add('selected');
+  selectedPdfPage = pageNum;
+
+  // Show columns
+  document.getElementById('columns').style.display = 'grid';
+  updateNavButtons();
+
+  // Show original image
+  const origImg   = document.getElementById('orig-img');
+  const origEmpty = document.getElementById('orig-empty');
+  origEmpty.textContent = 'Рендерю страницу…'; origEmpty.style.display = 'block';
+  origImg.style.display = 'none';
+
+  const { dataUrl } = await getPdfPageImage(pageNum);
+  origImg.src = dataUrl; origImg.style.display = 'block'; origEmpty.style.display = 'none';
+
+  // Show existing result or empty state
+  const trans  = document.getElementById('translation');
+  const copyBtn = document.getElementById('copy-btn');
+  document.getElementById('loading').style.display = 'none';
+
+  if (pdfResults[pageNum]) {
+    lastResult = pdfResults[pageNum];
+    render(lastResult);
+    copyBtn.style.display = 'block';
+  } else {
+    lastResult = null;
+    trans.innerHTML = `<div class="empty">
+      Страница ${pageNum} не обработана.<br>
+      <button onclick="processSinglePage(${pageNum})" style="
+        margin-top:0.8rem; font-family:Georgia,serif; font-size:0.8rem;
+        padding:0.35rem 1rem; background:var(--parchment-dark);
+        border:1px solid var(--border); border-radius:1px; cursor:pointer;">
+        Обработать эту страницу
+      </button>
+    </div>`;
+    copyBtn.style.display = 'none';
+  }
+}
+
+function updateNavButtons() {
+  const p = selectedPdfPage;
+  document.getElementById('nav-prev').disabled = !p || p <= 1;
+  document.getElementById('nav-next').disabled = !p || p >= totalPages;
+  document.getElementById('nav-label').textContent = p ? `${p} / ${totalPages}` : '';
+}
+
+document.getElementById('nav-prev').addEventListener('click', () => {
+  if (selectedPdfPage > 1) openPdfPage(selectedPdfPage - 1);
+});
+document.getElementById('nav-next').addEventListener('click', () => {
+  if (selectedPdfPage < totalPages) openPdfPage(selectedPdfPage + 1);
+});
+
+// ── Single-page processing ────────────────────────────────────────────────────
+
+async function processSinglePage(pageNum) {
+  document.getElementById('columns').style.display = 'grid';
+  const loading = document.getElementById('loading');
+  const trans   = document.getElementById('translation');
+  const copyBtn = document.getElementById('copy-btn');
+
+  loading.style.display = 'block';
+  document.getElementById('loading-msg').textContent = `Обрабатываю страницу ${pageNum}…`;
+  trans.innerHTML = '';
+  copyBtn.style.display = 'none';
+
+  try {
+    const { b64 } = await getPdfPageImage(pageNum);
+    const result = await callClaude(b64, 'image/png');
+    pdfResults[pageNum] = result;
+    pdfThumbEls[pageNum]?.classList.add('done');
+    lastResult = result;
+    render(result);
+    copyBtn.style.display = 'block';
+    checkSavePdfBtn();
+  } catch (err) {
+    showTranslateError(err);
+  } finally {
+    loading.style.display = 'none';
+  }
+}
+
+// ── Batch processing ──────────────────────────────────────────────────────────
+
+document.getElementById('process-all-btn').addEventListener('click', () => {
+  if (!pdfDoc) return;
+  startBatch();
+});
+document.getElementById('cancel-btn').addEventListener('click', () => { batchCancelled = true; });
+
+async function startBatch() {
+  batchCancelled = false;
+  const progressBar  = document.getElementById('batch-progress');
+  const progressFill = document.getElementById('progress-fill');
+  const progressText = document.getElementById('progress-text');
+  const processBtn   = document.getElementById('process-all-btn');
+
+  progressBar.style.display = 'flex';
+  processBtn.disabled = true;
+
+  let done = 0;
+  const pagesToProcess = [];
+  for (let i = 1; i <= totalPages; i++) {
+    if (!pdfResults[i]) pagesToProcess.push(i);
+  }
+  const total = pagesToProcess.length;
+
+  for (const pageNum of pagesToProcess) {
+    if (batchCancelled) break;
+
+    progressText.textContent = `${done} / ${total}`;
+    progressFill.style.width = `${(done / total) * 100}%`;
+
+    // Show page being processed
+    if (!selectedPdfPage) openPdfPage(pageNum);
+    else {
+      // Update original image silently
+      const origImg = document.getElementById('orig-img');
+      if (selectedPdfPage === pageNum) {
+        const { dataUrl } = await getPdfPageImage(pageNum);
+        origImg.src = dataUrl;
+        origImg.style.display = 'block';
+        document.getElementById('orig-empty').style.display = 'none';
+        document.getElementById('columns').style.display = 'grid';
+      }
+    }
+
+    document.getElementById('loading').style.display = 'block';
+    document.getElementById('loading-msg').textContent = `Seite ${pageNum} / ${totalPages}…`;
+    document.getElementById('translation').innerHTML = '';
+
+    try {
+      const { b64 } = await getPdfPageImage(pageNum);
+      const result = await callClaude(b64, 'image/png');
+      pdfResults[pageNum] = result;
+      pdfThumbEls[pageNum]?.classList.add('done');
+      if (selectedPdfPage === pageNum || !selectedPdfPage) {
+        selectedPdfPage = pageNum;
+        lastResult = result;
+        render(result);
+        document.getElementById('copy-btn').style.display = 'block';
+        updateNavButtons();
+      }
+    } catch (err) {
+      // Mark page with error, continue
+      console.error(`Page ${pageNum}:`, err);
+    }
+
+    document.getElementById('loading').style.display = 'none';
+    done++;
+  }
+
+  progressFill.style.width = '100%';
+  progressText.textContent = batchCancelled ? 'Отменено' : `${done} / ${total} готово`;
+  processBtn.disabled = false;
+  checkSavePdfBtn();
+}
+
+function checkSavePdfBtn() {
+  const count = Object.keys(pdfResults).length;
+  document.getElementById('save-pdf-btn').style.display = count > 0 ? 'block' : 'none';
+}
+
+// ── Claude API call ───────────────────────────────────────────────────────────
+
+async function callClaude(b64, mediaType) {
+  const apiKey = getApiKey();
+  if (!apiKey) throw new Error('Введите Anthropic API Key');
+
+  const mode   = getOutputMode();
+  const lang   = getTranslateLang();
+  const prompt = mode === 'modernize' ? PROMPT_MODERNIZE : PROMPT_TRANSLATE(lang);
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-5',
+      max_tokens: 4000,
+      system: prompt,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
+          { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' }
+        ]
+      }]
+    })
+  });
+
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+
+  const raw = (data.content || []).map(b => b.text || '').join('');
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error('Нет JSON в ответе: ' + raw.slice(0, 300));
+  return JSON.parse(m[0]);
+}
+
+// ── Save as PDF (browser print) ───────────────────────────────────────────────
+
+document.getElementById('save-pdf-btn').addEventListener('click', savePdf);
+
+function savePdf() {
+  const mode = getOutputMode();
+  const lang = mode === 'modernize' ? 'Modernes Deutsch' : getTranslateLang();
+  const pages = Object.keys(pdfResults)
+    .map(Number).sort((a, b) => a - b)
+    .map(n => ({ num: n, result: pdfResults[n] }));
+
+  if (!pages.length) return;
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Gothic Reader — ${lang}</title>
+<style>
+  @page { margin: 2.5cm 2.5cm 2.5cm 2.5cm; size: A4; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 11pt;
+    line-height: 1.8;
+    color: #1a1209;
+  }
+  .page-block { page-break-after: always; padding-bottom: 1cm; }
+  .page-block:last-child { page-break-after: auto; }
+  .page-meta {
+    font-size: 8pt;
+    color: #999;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 0.3cm;
+    margin-bottom: 0.6cm;
+    display: flex;
+    justify-content: space-between;
+  }
+  h2 { font-size: 13pt; color: #5a0000; font-style: italic; text-align: center; margin-bottom: 0.5cm; font-weight: normal; }
+  p { margin-bottom: 0.4cm; text-align: justify; }
+  .latin-block {
+    border-left: 3px solid #b8860b;
+    padding: 0.3cm 0.5cm;
+    margin: 0.3cm 0;
+    background: #fffbf0;
+    font-size: 10pt;
+  }
+  .latin-block .orig { font-style: italic; color: #8b1a1a; }
+  .latin-block .src  { font-size: 8.5pt; color: #8a6040; font-style: italic; margin-top: 0.15cm; }
+  .section-label { font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.1em; color: #b8860b; margin: 0.5cm 0 0.2cm; }
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+${pages.map(({ num, result: r }) => `
+<div class="page-block">
+  <div class="page-meta">
+    <span>Gothic Reader · ${lang}</span>
+    <span>Seite ${num}</span>
+  </div>
+  ${r.title ? `<h2>${escHtml(r.title)}</h2>` : ''}
+  ${(r.paragraphs || []).map(p => `<p>${escHtml(p)}</p>`).join('\n  ')}
+  ${r.latin_fragments?.length ? `
+  <div class="section-label">Lateinische Fragmente</div>
+  ${r.latin_fragments.map(l => `
+  <div class="latin-block">
+    <div class="orig">${escHtml(l.original)}</div>
+    <div>${escHtml(l.translation)}</div>
+    ${l.source ? `<div class="src">${escHtml(l.source)}</div>` : ''}
+  </div>`).join('')}` : ''}
+</div>`).join('\n')}
+</body>
+</html>`;
+
+  const win = window.open('', '_blank');
+  win.document.write(html);
+  win.document.close();
+  // Wait for fonts/layout, then print
+  win.addEventListener('load', () => { setTimeout(() => win.print(), 400); });
+  // Fallback if load already fired
+  setTimeout(() => { try { win.print(); } catch(_) {} }, 800);
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ── Render result ─────────────────────────────────────────────────────────────
+
+function render(r) {
+  const trans = document.getElementById('translation');
+  let html = '';
+  if (r.title) html += `<h2 class="title-heading">${r.title}</h2>`;
+  if (r.paragraphs?.length) html += r.paragraphs.map(p => `<div class="para">${p}</div>`).join('');
+  if (r.latin_fragments?.length) {
+    html += `<div class="section-label">Lateinische Fragmente</div>`;
+    html += r.latin_fragments.map(l => `
+      <div class="latin-block">
+        <div class="latin-original">${l.original}</div>
+        <div class="latin-translation">${l.translation}</div>
+        ${l.source ? `<div class="latin-source">${l.source}</div>` : ''}
+      </div>`).join('');
+  }
+  trans.innerHTML = html;
+}
+
+function showTranslateError(err) {
+  const isNetwork = err instanceof TypeError && err.message === 'Failed to fetch';
+  const msg = isNetwork
+    ? 'Нет подключения к api.anthropic.com. Проверьте VPN / интернет.'
+    : err.message;
+  document.getElementById('translation').innerHTML =
+    `<div class="error"><strong>Ошибка:</strong><br>${msg}</div>`;
+}
+
+// ── Copy ──────────────────────────────────────────────────────────────────────
+
+document.getElementById('copy-btn').addEventListener('click', () => {
+  if (!lastResult) return;
+  let t = lastResult.title ? lastResult.title + '\n\n' : '';
+  t += (lastResult.paragraphs || []).join('\n\n');
+  if (lastResult.latin_fragments?.length) {
+    t += '\n\n— Lateinische Fragmente —';
+    lastResult.latin_fragments.forEach(l => {
+      t += `\n\n${l.original}\n→ ${l.translation}\n(${l.source})`;
+    });
+  }
+  navigator.clipboard.writeText(t);
+});
+
+// ── Secondary section toggle ──────────────────────────────────────────────────
+
+document.getElementById('secondary-toggle').addEventListener('click', function() {
+  this.classList.toggle('open');
+  document.getElementById('secondary-body').classList.toggle('open');
+});
+
+// ── Screenshot server ─────────────────────────────────────────────────────────
+
+async function checkScreenshotServer() {
+  try {
+    const r = await fetch(`${SCREENSHOT_SERVER}/ping`, { signal: AbortSignal.timeout(800) });
+    screenshotServerAvailable = r.ok;
+  } catch (_) { screenshotServerAvailable = false; }
+  const el = document.getElementById('screenshot-server-indicator');
+  if (!el) return;
+  if (screenshotServerAvailable) {
+    el.textContent = '● Скриншот-сервер подключён'; el.style.color = '#6abf69';
+  } else {
+    el.textContent = '○ Скриншот-сервер не запущен'; el.style.color = ''; el.style.opacity = '.5';
+  }
+}
+checkScreenshotServer();
+setInterval(checkScreenshotServer, 10000);
+
+// ── DLC URL loading ───────────────────────────────────────────────────────────
+
 function parseDlcUrl(url) {
   const m = url.match(/dlc\.mpg\.de\/(?:fullscreen|image)\/([^/?#]+)\/(\d+)/);
   if (!m) return null;
   return {
     id: m[1],
-    pageNum: parseInt(m[2]),                              // 1-based integer
-    page: String(parseInt(m[2])).padStart(8, '0')         // "00000021"
+    pageNum: parseInt(m[2]),
+    page: String(parseInt(m[2])).padStart(8, '0')
   };
 }
 
-// Extract image body from a IIIF canvas object
 function imageFromCanvas(canvas) {
   const anno = canvas?.items?.[0]?.items?.[0];
   const body = anno?.body;
@@ -618,114 +1305,65 @@ function imageFromCanvas(canvas) {
   return null;
 }
 
-// Get image URLs for a page from IIIF manifest + canvas
 async function getImageUrlsFromManifest(id, pageNum) {
   const page = String(pageNum).padStart(8, '0');
-
-  // Step 1: Fetch the viewer page HTML to find the real IIIF manifest URL
   let realManifestUrl = null;
   try {
-    const viewerUrl = `https://dlc.mpg.de/image/${id}/${pageNum}/`;
-    console.log('[preview] fetching viewer page', viewerUrl);
-    const vr = await fetch(viewerUrl);
-    console.log('[preview] viewer status', vr.status);
+    const vr = await fetch(`https://dlc.mpg.de/image/${id}/${pageNum}/`);
     if (vr.ok) {
       const html = await vr.text();
-      console.log('[preview] viewer HTML excerpt', html.slice(0, 2000));
-      // Look for IIIF manifest URL in HTML (data attributes, JS vars, JSON-LD)
       const patterns = [
         /data-iiif-manifest(?:-uri)?=["']([^"']+)["']/i,
         /data-manifest(?:-uri)?=["']([^"']+)["']/i,
         /manifestUri['":\s]+["']([^"']+manifest[^"']*)["']/i,
-        /manifestUrl['":\s]+["']([^"']+manifest[^"']*)["']/i,
-        /iiif[-_]?manifest['":\s]+["']([^"']+)["']/i,
         /["'](https?:\/\/[^"'\s]+\/manifest(?:\.json|\/)[^"'\s]*)["']/,
-        /["'](https?:\/\/[^"'\s]+manifest\.json[^"'\s]*)["']/,
         /"manifest"\s*:\s*"([^"]+)"/,
-        /manifest:\s*['"]([^'"]+manifest[^'"]*)['"]/i,
       ];
       for (const pat of patterns) {
         const m = html.match(pat);
-        if (m) { realManifestUrl = m[1]; console.log('[preview] found manifest in HTML', realManifestUrl); break; }
+        if (m) { realManifestUrl = m[1]; break; }
       }
-      // Also scan for default.jpg image URLs directly in the HTML
       const imgPat = /["'](https?:\/\/[^"'\s<>]+\/default\.jpg)["']/g;
       let imgM;
       while ((imgM = imgPat.exec(html)) !== null) {
         const u = imgM[1];
-        // Prefer a URL that looks like a specific page (not just /full/...)
-        if (u.includes(page) || u.includes(`/${pageNum}/`) || u.includes(`/${pageNum}_`)) {
-          console.log('[preview] found image URL in HTML', u);
-          return { fullUrl: u, thumbUrl: u };
-        }
+        if (u.includes(page) || u.includes(`/${pageNum}/`)) return { fullUrl: u, thumbUrl: u };
       }
     }
-  } catch (e) { console.log('[preview] viewer page error', e.message); }
+  } catch (e) {}
 
-  // Step 2: Try the manifest URL (either discovered or the API endpoint)
-  const manifestUrlsToTry = [
-    realManifestUrl,
-    `https://dlc.mpg.de/api/v2/records/${id}/manifest/`,
-  ].filter(Boolean);
-
-  for (const manifestUrl of manifestUrlsToTry) {
+  const urls = [realManifestUrl, `https://dlc.mpg.de/api/v2/records/${id}/manifest/`].filter(Boolean);
+  for (const manifestUrl of urls) {
     try {
-      console.log('[preview] fetching manifest', manifestUrl);
       const r = await fetch(manifestUrl);
-      console.log('[preview] manifest status', r.status);
       if (!r.ok) continue;
       const text = await r.text();
-      if (!text.trim().startsWith('{') && !text.trim().startsWith('[')) {
-        console.log('[preview] manifest returned HTML, not JSON');
-        continue;
-      }
+      if (!text.trim().startsWith('{')) continue;
       const manifest = JSON.parse(text);
       const idx = pageNum - 1;
-      console.log('[preview] manifest keys', Object.keys(manifest), 'idx', idx);
-
-      // IIIF v2
       const canvases = manifest?.sequences?.[0]?.canvases;
       if (canvases?.[idx]) {
         const resource = canvases[idx]?.images?.[0]?.resource;
         const svcId = resource?.service?.['@id'] || resource?.service?.[0]?.['@id'];
-        console.log('[preview] v2 svcId', svcId);
         if (svcId) return { fullUrl: `${svcId}/full/!1500,2000/0/default.jpg`, thumbUrl: `${svcId}/full/!400,400/0/default.jpg` };
         if (resource?.['@id']) return { fullUrl: resource['@id'], thumbUrl: resource['@id'] };
       }
-
-      // IIIF v3
       const items = manifest?.items;
-      console.log('[preview] v3 items count', items?.length);
       if (items?.[idx]) {
         const embedded = imageFromCanvas(items[idx]);
-        if (embedded) { console.log('[preview] embedded', embedded); return embedded; }
-        const canvasUrl = items[idx]?.id;
-        console.log('[preview] canvas url', canvasUrl);
-        if (canvasUrl) {
-          try {
-            const cr = await fetch(canvasUrl);
-            if (cr.ok) {
-              const canvasData = await cr.json();
-              const result = imageFromCanvas(canvasData);
-              if (result) return result;
-            }
-          } catch (e) { console.log('[preview] canvas error', e.message); }
-        }
+        if (embedded) return embedded;
         return {
           fullUrl: `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!1500,2000/0/default.jpg`,
           thumbUrl: `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!400,400/0/default.jpg`
         };
       }
-    } catch (e) { console.log('[preview] manifest error', e.message); }
+    } catch (e) {}
   }
-
   return null;
 }
 
-
-document.getElementById('url-btn').addEventListener('click', () => {
-  loadFromUrl(document.getElementById('url-input').value.trim());
-});
+document.getElementById('url-btn').addEventListener('click', () =>
+  loadFromUrl(document.getElementById('url-input').value.trim()));
 document.getElementById('url-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') loadFromUrl(document.getElementById('url-input').value.trim());
 });
@@ -734,238 +1372,104 @@ async function loadFromUrl(url) {
   if (!url) return;
   const parsed = parseDlcUrl(url);
   if (!parsed) {
-    alert('Не удалось распознать ссылку.\nОжидается формат: dlc.mpg.de/fullscreen/{id}/{page}/ или dlc.mpg.de/image/{id}/{page}/');
+    alert('Ожидается формат: dlc.mpg.de/fullscreen/{id}/{page}/ или dlc.mpg.de/image/{id}/{page}/');
     return;
   }
-
   const { id, page, pageNum } = parsed;
 
-  // Show panels with loading state
   document.getElementById('columns').style.display = 'grid';
   const origEmpty = document.getElementById('orig-empty');
-  origEmpty.textContent = 'Загружаю изображение…';
-  origEmpty.style.display = 'block';
-  const img = document.getElementById('orig-img');
-  img.style.display = 'none';
-
-  // Show translation loading spinner right away
-  const loading = document.getElementById('loading');
-  const trans = document.getElementById('translation');
-  loading.style.display = 'block';
-  trans.innerHTML = '';
+  origEmpty.textContent = 'Загружаю…'; origEmpty.style.display = 'block';
+  document.getElementById('orig-img').style.display = 'none';
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('loading-msg').textContent = 'Читаю готический шрифт…';
+  document.getElementById('translation').innerHTML = '';
   document.getElementById('copy-btn').style.display = 'none';
 
-  // 1. Screenshot server path (bypasses Anubis, shows real page, uses screenshot for translation)
   if (screenshotServerAvailable) {
-    const dlcViewerUrl = `https://dlc.mpg.de/image/${id}/${pageNum}/`;
-    origEmpty.textContent = 'Делаю скриншот страницы…';
+    origEmpty.textContent = 'Делаю скриншот…';
     try {
-      const screenshotUrl = `${SCREENSHOT_SERVER}/screenshot?url=${encodeURIComponent(dlcViewerUrl)}`;
-      const r = await fetch(screenshotUrl, { signal: AbortSignal.timeout(60000) });
+      const r = await fetch(
+        `${SCREENSHOT_SERVER}/screenshot?url=${encodeURIComponent(`https://dlc.mpg.de/image/${id}/${pageNum}/`)}`,
+        { signal: AbortSignal.timeout(60000) }
+      );
       if (r.ok) {
         const blob = await r.blob();
         if (blob.type.startsWith('image/')) {
-          const dataUrl = await new Promise(resolve => {
-            const reader = new FileReader();
-            reader.onload = e => resolve(e.target.result);
-            reader.readAsDataURL(blob);
-          });
-          img.src = dataUrl;
-          img.style.display = 'block';
-          origEmpty.style.display = 'none';
-          loading.childNodes[loading.childNodes.length - 1].textContent = ' Перевожу скриншот…';
-
-          // Translate the screenshot directly (as base64)
+          const dataUrl = await blobToDataUrl(blob);
+          const img = document.getElementById('orig-img');
+          img.src = dataUrl; img.style.display = 'block'; origEmpty.style.display = 'none';
           const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
-          await translate(b64, blob.type);
+          await translateSingle(b64, blob.type);
           return;
         }
       }
-    } catch (err) {
-      console.warn('[screenshot] server error, falling back:', err.message);
-    }
-    // Server responded but failed — fall through to standard flow
+    } catch (_) {}
   }
 
-  // 2. Открываем оригинал в новой вкладке — изображения dlc.mpg.de требуют авторизации
-  //    и недоступны для прямой загрузки из браузера
-  const dlcViewerUrl = `https://dlc.mpg.de/image/${id}/${pageNum}/`;
-  window.open(dlcViewerUrl, '_blank');
-
-  img.style.display = 'none';
-  origEmpty.innerHTML = `<div style="text-align:center;padding:2rem 1rem;font-size:0.82rem;color:var(--ink)">
-    Оригинал открыт в соседней вкладке
-    <div style="margin-top:0.6rem">
-      <a href="${dlcViewerUrl}" target="_blank" style="color:var(--gold);text-decoration:underline">
-        Открыть снова ↗
-      </a>
-    </div>
-  </div>`;
+  window.open(`https://dlc.mpg.de/image/${id}/${pageNum}/`, '_blank');
+  document.getElementById('orig-img').style.display = 'none';
+  origEmpty.innerHTML = `<div style="text-align:center;padding:2rem 1rem;font-size:0.82rem">
+    Оригинал открыт в соседней вкладке</div>`;
   origEmpty.style.display = 'block';
 
-  // Fallback URLs for Claude API
   const claudeUrl = `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!1500,2000/0/default.jpg`;
-  const claudeThumb = `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!400,400/0/default.jpg`;
 
-  // 4. Fetch OCR text (v1 API)
-  const dbg = [];
   let ocrText = null;
   try {
     const ocrUrl = `https://dlc.mpg.de/api/v1/records/${id}/files/plaintext/${page}.xml`;
-    dbg.push(`fetch ${ocrUrl.slice(-30)}`);
     const resp = await fetch(ocrUrl);
-    dbg.push(`status=${resp.status}`);
     if (resp.ok) {
       const xml = await resp.text();
-      dbg.push(`xmlLen=${xml.length}`);
-      if (!xml.trim().toLowerCase().startsWith('<!doctype html') && !xml.trim().startsWith('<html')) {
-        const text = xml
-          .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, ' ')
-          .replace(/<[^>]+>/g, ' ')
-          .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
-          .replace(/\s+/g, ' ').trim();
-        dbg.push(`textLen=${text.length}`);
+      if (!xml.trim().toLowerCase().startsWith('<!doctype html')) {
+        const text = xml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
         if (text.length > 50) ocrText = text;
-      } else { dbg.push('html-response'); }
+      }
     }
-  } catch (e) { dbg.push(`err=${e.message}`); }
+  } catch (_) {}
 
-  loading.style.display = 'none';
+  document.getElementById('loading').style.display = 'none';
 
   if (ocrText) {
-    translateText(ocrText);
+    translateOcr(ocrText);
   } else {
-    // OCR unavailable — pass URL directly to Claude API (its servers download it)
-    loading.style.display = 'block';
-    let urlTranslated = false;
-    for (const u of [claudeUrl, claudeThumb]) {
-      try {
-        await translateImageUrl(u);
-        urlTranslated = true;
-        break;
-      } catch (e) { dbg.push(`url=${e.message.slice(0,40)}`); }
+    document.getElementById('loading').style.display = 'block';
+    try {
+      await translateUrlDirect(claudeUrl);
+    } catch (e) {
+      showTranslateError(e);
     }
-    loading.style.display = 'none';
-    if (!urlTranslated) {
-      showTranslateError(new Error(
-        `Не удалось получить данные страницы.<br><small style="opacity:.7">[${dbg.join(' · ')}]</small><br><br>Пожалуйста, сделайте скриншот страницы (Win+Shift+S или Cmd+Shift+4) и загрузите его вручную.`
-      ));
-    }
+    document.getElementById('loading').style.display = 'none';
   }
 }
 
-async function translateText(ocrText) {
-  const loading = document.getElementById('loading');
-  const trans = document.getElementById('translation');
-  const copyBtn = document.getElementById('copy-btn');
+function blobToDataUrl(blob) {
+  return new Promise(resolve => {
+    const r = new FileReader();
+    r.onload = e => resolve(e.target.result);
+    r.readAsDataURL(blob);
+  });
+}
 
-  loading.style.display = 'block';
-  trans.innerHTML = '';
-  copyBtn.style.display = 'none';
-  lastResult = null;
-
-  // Update loading message
-  const loadingMsg = loading.querySelector('span + *') || loading.childNodes[loading.childNodes.length - 1];
-  loading.childNodes[loading.childNodes.length - 1].textContent = ' Перевожу OCR-текст…';
-
+async function translateSingle(b64, mediaType) {
   try {
-    const apiKey = document.getElementById('apikey-input').value.trim();
-    if (!apiKey) throw new Error('Введите Anthropic API Key в поле выше');
-
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 4000,
-        system: PROMPT_TEXT,
-        messages: [{
-          role: 'user',
-          content: ocrText
-        }]
-      })
-    });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
-
-    const raw = (data.content || []).map(b => b.text || '').join('');
-    const m = raw.match(/\{[\s\S]*\}/);
-    if (!m) throw new Error('Нет JSON в ответе: ' + raw.slice(0, 300));
-
-    lastResult = JSON.parse(m[0]);
-    render(lastResult);
-    copyBtn.style.display = 'block';
-
+    const result = await callClaude(b64, mediaType);
+    lastResult = result;
+    render(result);
+    document.getElementById('copy-btn').style.display = 'block';
   } catch (err) {
     showTranslateError(err);
   } finally {
-    loading.style.display = 'none';
+    document.getElementById('loading').style.display = 'none';
   }
 }
 
-
-function showTranslateError(err) {
-  const trans = document.getElementById('translation');
-  const isNetwork = err instanceof TypeError && err.message === 'Failed to fetch';
-  const msg = isNetwork
-    ? 'Не удаётся подключиться к api.anthropic.com.<br>Возможные причины:<br>• API заблокирован провайдером/Роскомнадзором — включите VPN<br>• Нет интернета<br>• Браузерное расширение блокирует запрос (попробуйте отключить AdBlock/uBlock)'
-    : err.message;
-  trans.innerHTML = `<div class="error"><strong>Ошибка:</strong><br>${msg}</div>`;
-}
-
-// Upload zone
-const zone = document.getElementById('upload-zone');
-const fileInput = document.getElementById('file-input');
-
-zone.addEventListener('click', () => fileInput.click());
-zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
-zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
-zone.addEventListener('drop', e => {
-  e.preventDefault();
-  zone.classList.remove('drag');
-  handleFile(e.dataTransfer.files[0]);
-});
-fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
-
-function handleFile(file) {
-  if (!file || !file.type.startsWith('image/')) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    const dataUrl = e.target.result;
-    const match = dataUrl.match(/^data:(image\/[a-z+]+);base64,/);
-    const type = match ? match[1] : 'image/png';
-    const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
-
-    // Show image
-    const img = document.getElementById('orig-img');
-    img.src = dataUrl;
-    img.style.display = 'block';
-    document.getElementById('orig-empty').style.display = 'none';
-    document.getElementById('columns').style.display = 'grid';
-
-    translate(b64, type);
-  };
-  reader.readAsDataURL(file);
-}
-
-async function translateImageUrl(imageUrl) {
-  const loading = document.getElementById('loading');
-  const trans = document.getElementById('translation');
-  const copyBtn = document.getElementById('copy-btn');
-
-  loading.style.display = 'block';
-  trans.innerHTML = '';
-  copyBtn.style.display = 'none';
-  lastResult = null;
-
-  const apiKey = document.getElementById('apikey-input').value.trim();
+async function translateUrlDirect(imageUrl) {
+  const apiKey = getApiKey();
   if (!apiKey) throw new Error('Введите Anthropic API Key');
+  const mode   = getOutputMode();
+  const lang   = getTranslateLang();
+  const prompt = mode === 'modernize' ? PROMPT_MODERNIZE : PROMPT_TRANSLATE(lang);
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -978,48 +1482,40 @@ async function translateImageUrl(imageUrl) {
     body: JSON.stringify({
       model: 'claude-sonnet-4-5',
       max_tokens: 4000,
-      system: PROMPT,
+      system: prompt,
       messages: [{
         role: 'user',
         content: [
           { type: 'image', source: { type: 'url', url: imageUrl } },
-          { type: 'text', text: 'Прочитай страницу. Каждый абзац оригинала — отдельный элемент массива paragraphs. Верни только JSON.' }
+          { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' }
         ]
       }]
     })
   });
-
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
-
   const raw = (data.content || []).map(b => b.text || '').join('');
   const m = raw.match(/\{[\s\S]*\}/);
-  if (!m) throw new Error('Нет JSON в ответе: ' + raw.slice(0, 300));
-
+  if (!m) throw new Error('Нет JSON в ответе');
   lastResult = JSON.parse(m[0]);
-  if (!lastResult.title && !lastResult.paragraphs?.length) {
-    throw new Error('Текст на странице не распознан');
-  }
   render(lastResult);
-  copyBtn.style.display = 'block';
-  loading.style.display = 'none';
+  document.getElementById('copy-btn').style.display = 'block';
 }
 
-async function translate(b64, type) {
+async function translateOcr(ocrText) {
   const loading = document.getElementById('loading');
-  const trans = document.getElementById('translation');
-  const copyBtn = document.getElementById('copy-btn');
-
+  const trans   = document.getElementById('translation');
   loading.style.display = 'block';
+  document.getElementById('loading-msg').textContent = 'Обрабатываю OCR-текст…';
   trans.innerHTML = '';
-  copyBtn.style.display = 'none';
-  lastResult = null;
+  document.getElementById('copy-btn').style.display = 'none';
 
   try {
-    const apiKey = document.getElementById('apikey-input').value.trim();
-    if (!apiKey) {
-      throw new Error('Введите Anthropic API Key в поле выше');
-    }
+    const apiKey = getApiKey();
+    if (!apiKey) throw new Error('Введите Anthropic API Key');
+    const mode   = getOutputMode();
+    const lang   = getTranslateLang();
+    const prompt = mode === 'modernize' ? PROMPT_TEXT_MODERNIZE : PROMPT_TEXT_TRANSLATE(lang);
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -1030,30 +1526,20 @@ async function translate(b64, type) {
         'anthropic-dangerous-direct-browser-access': 'true',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 4000,
-        system: PROMPT,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: type, data: b64 } },
-            { type: 'text', text: 'Прочитай страницу. Каждый абзац оригинала — отдельный элемент массива paragraphs. Верни только JSON.' }
-          ]
-        }]
+        system: prompt,
+        messages: [{ role: 'user', content: ocrText }]
       })
     });
-
     const data = await res.json();
     if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
-
     const raw = (data.content || []).map(b => b.text || '').join('');
     const m = raw.match(/\{[\s\S]*\}/);
-    if (!m) throw new Error('Нет JSON в ответе: ' + raw.slice(0, 300));
-
+    if (!m) throw new Error('Нет JSON в ответе');
     lastResult = JSON.parse(m[0]);
     render(lastResult);
-    copyBtn.style.display = 'block';
-
+    document.getElementById('copy-btn').style.display = 'block';
   } catch (err) {
     showTranslateError(err);
   } finally {
@@ -1061,180 +1547,42 @@ async function translate(b64, type) {
   }
 }
 
-function render(r) {
-  const trans = document.getElementById('translation');
-  let html = '';
+// ── Image upload (single page) ────────────────────────────────────────────────
 
-  if (r.title) {
-    html += `<h2 class="title-heading">${r.title}</h2>`;
-  }
+const uploadZone = document.getElementById('upload-zone');
+const fileInput  = document.getElementById('file-input');
 
-  if (r.paragraphs?.length) {
-    html += r.paragraphs.map(p => `<div class="para">${p}</div>`).join('');
-  }
-
-  if (r.latin_fragments?.length) {
-    html += `<div class="section-label">Латинские фрагменты</div>`;
-    html += r.latin_fragments.map(l => `
-      <div class="latin-block">
-        <div class="latin-original">${l.original}</div>
-        <div class="latin-translation">${l.translation}</div>
-        ${l.source ? `<div class="latin-source">Источник: ${l.source}</div>` : ''}
-      </div>`).join('');
-  }
-
-  trans.innerHTML = html;
-}
-
-// ── PDF support ──────────────────────────────────────────────────────────────
-
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-
-let pdfDoc = null;
-let pdfPageCanvases = {};   // pageNum → full-res canvas (lazy)
-let selectedPdfPage = null;
-
-const pdfDropZone  = document.getElementById('pdf-drop-zone');
-const pdfFileInput = document.getElementById('pdf-file-input');
-
-pdfDropZone.addEventListener('click', () => pdfFileInput.click());
-pdfDropZone.addEventListener('dragover', e => { e.preventDefault(); pdfDropZone.classList.add('drag'); });
-pdfDropZone.addEventListener('dragleave', () => pdfDropZone.classList.remove('drag'));
-pdfDropZone.addEventListener('drop', e => {
-  e.preventDefault();
-  pdfDropZone.classList.remove('drag');
-  const f = e.dataTransfer.files[0];
-  if (f && f.type === 'application/pdf') loadPdf(f);
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault(); uploadZone.classList.remove('drag');
+  handleImageFile(e.dataTransfer.files[0]);
 });
-pdfFileInput.addEventListener('change', e => {
-  const f = e.target.files[0];
-  if (f) loadPdf(f);
-});
+fileInput.addEventListener('change', e => handleImageFile(e.target.files[0]));
 
-async function loadPdf(file) {
-  const progressEl = document.getElementById('pdf-progress');
-  const strip      = document.getElementById('pdf-pages-strip');
-  const pagesBar   = document.getElementById('pdf-pages-bar');
+function handleImageFile(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = async e => {
+    const dataUrl = e.target.result;
+    const match = dataUrl.match(/^data:(image\/[a-z+]+);base64,/);
+    const type = match ? match[1] : 'image/png';
+    const b64  = dataUrl.slice(dataUrl.indexOf(',') + 1);
 
-  pdfDoc = null;
-  pdfPageCanvases = {};
-  selectedPdfPage = null;
-  strip.innerHTML = '';
-  pagesBar.style.display = 'block';
-  progressEl.textContent = 'Загружаю…';
+    document.getElementById('orig-img').src = dataUrl;
+    document.getElementById('orig-img').style.display = 'block';
+    document.getElementById('orig-empty').style.display = 'none';
+    document.getElementById('columns').style.display = 'grid';
+    document.getElementById('loading').style.display = 'block';
+    document.getElementById('loading-msg').textContent = 'Читаю готический шрифт…';
+    document.getElementById('translation').innerHTML = '';
+    document.getElementById('copy-btn').style.display = 'none';
 
-  const arrayBuffer = await file.arrayBuffer();
-  pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  const total = pdfDoc.numPages;
-  progressEl.textContent = `0 / ${total}`;
-
-  // Render thumbnails progressively
-  for (let i = 1; i <= total; i++) {
-    const thumb = await renderThumb(i);
-    strip.appendChild(thumb);
-    progressEl.textContent = `${i} / ${total}`;
-  }
-  progressEl.textContent = `${total} стр.`;
-}
-
-async function renderThumb(pageNum) {
-  const page = await pdfDoc.getPage(pageNum);
-  const viewport = page.getViewport({ scale: 1 });
-  const scale = 70 / viewport.height;
-  const scaled = page.getViewport({ scale });
-
-  const canvas = document.createElement('canvas');
-  canvas.width  = Math.round(scaled.width);
-  canvas.height = Math.round(scaled.height);
-  await page.render({ canvasContext: canvas.getContext('2d'), viewport: scaled }).promise;
-
-  const wrapper = document.createElement('div');
-  wrapper.className = 'pdf-thumb';
-  wrapper.appendChild(canvas);
-  const label = document.createElement('span');
-  label.className = 'page-num';
-  label.textContent = pageNum;
-  wrapper.appendChild(label);
-
-  wrapper.addEventListener('click', () => selectPdfPage(pageNum, wrapper));
-  return wrapper;
-}
-
-async function selectPdfPage(pageNum, thumbEl) {
-  // Deselect previous
-  document.querySelectorAll('.pdf-thumb.selected').forEach(el => el.classList.remove('selected'));
-  thumbEl.classList.add('selected');
-  selectedPdfPage = pageNum;
-
-  // Render full-res page to canvas if not cached
-  if (!pdfPageCanvases[pageNum]) {
-    const page = await pdfDoc.getPage(pageNum);
-    const viewport = page.getViewport({ scale: 2 });
-    const canvas = document.createElement('canvas');
-    canvas.width  = viewport.width;
-    canvas.height = viewport.height;
-    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-    pdfPageCanvases[pageNum] = canvas;
-  }
-
-  const canvas = pdfPageCanvases[pageNum];
-
-  // Show in left panel as image
-  const dataUrl = canvas.toDataURL('image/png');
-  const img = document.getElementById('orig-img');
-  img.src = dataUrl;
-  img.style.display = 'block';
-  document.getElementById('orig-empty').style.display = 'none';
-  document.getElementById('columns').style.display = 'grid';
-
-  // Reset translation panel
-  document.getElementById('translation').innerHTML = '<div class="empty">Нажмите «Перевести страницу» для перевода</div>';
-  document.getElementById('copy-btn').style.display = 'none';
-  document.getElementById('loading').style.display = 'none';
-
-  // Show translate button for PDF page
-  showPdfTranslateBtn(pageNum, canvas);
-}
-
-function showPdfTranslateBtn(pageNum, canvas) {
-  let btn = document.getElementById('pdf-translate-btn');
-  if (!btn) {
-    btn = document.createElement('button');
-    btn.id = 'pdf-translate-btn';
-    btn.style.cssText = `
-      display:block; margin: 0 0 0.8rem; width:100%;
-      font-family:Georgia,serif; font-size:0.82rem;
-      padding:0.45rem 1rem;
-      background:var(--parchment-dark); border:1px solid var(--border);
-      border-radius:1px; color:var(--ink); cursor:pointer;
-    `;
-    btn.onmouseover = () => btn.style.background = 'var(--parchment-shadow)';
-    btn.onmouseout  = () => btn.style.background = 'var(--parchment-dark)';
-    const transPanel = document.querySelector('#columns .panel:last-child .panel-body');
-    transPanel.insertBefore(btn, transPanel.firstChild);
-  }
-  btn.textContent = `Перевести страницу ${pageNum}`;
-  btn.onclick = () => {
-    const dataUrl = canvas.toDataURL('image/png');
-    const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
-    translate(b64, 'image/png');
+    await translateSingle(b64, type);
   };
+  reader.readAsDataURL(file);
 }
-
-// Copy
-document.getElementById('copy-btn').addEventListener('click', () => {
-  if (!lastResult) return;
-  let t = lastResult.title ? lastResult.title + '\n\n' : '';
-  t += (lastResult.paragraphs || []).join('\n\n');
-  if (lastResult.latin_fragments?.length) {
-    t += '\n\n— Латинские фрагменты —';
-    lastResult.latin_fragments.forEach(l => {
-      t += `\n\n${l.original}\n→ ${l.translation}\n(${l.source})`;
-    });
-  }
-  navigator.clipboard.writeText(t);
-});
 </script>
 </body>
 </html>
