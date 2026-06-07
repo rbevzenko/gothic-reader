@@ -687,6 +687,27 @@
   #page-list-input:disabled { opacity: 0.35; }
   .page-sep { color: var(--text-3); }
 
+  /* Model selector */
+  #model-select {
+    font-family: inherit;
+    font-size: 0.75rem;
+    padding: 0.22rem 0.5rem;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  #model-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,0.1); }
+  .model-cost {
+    font-size: 0.68rem;
+    color: var(--text-3);
+    white-space: nowrap;
+  }
+  .model-cost.cheap { color: #059669; }
+  .model-cost.mid   { color: #d97706; }
+
   @media (max-width: 700px) {
     #columns { grid-template-columns: 1fr; }
   }
@@ -733,12 +754,10 @@
 
     <!-- Mode + Process button -->
     <div id="mode-bar">
-      <span class="mode-label">Ausgabe · Вывод:</span>
+      <span class="mode-label">Вывод:</span>
       <div class="mode-options">
         <label><input type="radio" name="output-mode" value="modernize" checked> Modernes Deutsch</label>
-        <label>
-          <input type="radio" name="output-mode" value="translate"> Перевод:
-        </label>
+        <label><input type="radio" name="output-mode" value="translate"> Перевод:</label>
         <select id="translate-lang">
           <option value="русский">Русский</option>
           <option value="English">English</option>
@@ -746,6 +765,13 @@
           <option value="polski">Polski</option>
         </select>
       </div>
+      <span class="mode-label" style="margin-left:0.5rem">Модель:</span>
+      <select id="model-select">
+        <option value="claude-haiku-4-5-20251001">Haiku 4.5 — быстро, дёшево</option>
+        <option value="claude-sonnet-4-5">Sonnet 4.5 — точнее, дороже</option>
+        <option value="claude-opus-4-8">Opus 4 — максимум качества</option>
+      </select>
+      <span class="model-cost" id="model-cost-label"></span>
       <div class="spacer"></div>
       <button id="process-all-btn"><span>▶</span> Обработать все страницы</button>
     </div>
@@ -975,15 +1001,22 @@ updateApikeyUI();
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-// ── Mode selector ─────────────────────────────────────────────────────────────
+// ── Mode & model selector ─────────────────────────────────────────────────────
 
 const translateLangEl = document.getElementById('translate-lang');
-document.querySelectorAll('input[name="output-mode"]').forEach(r => {
-  r.addEventListener('change', () => {
-    translateLangEl.style.display = r.value === 'translate' && r.checked ? 'inline-block' : 'none';
-    updateResultPanelTitle();
-  });
-});
+const modelSelectEl   = document.getElementById('model-select');
+
+const MODEL_DEFAULTS = {
+  modernize: 'claude-haiku-4-5-20251001',
+  translate: 'claude-sonnet-4-5',
+};
+const MODEL_COST = {
+  'claude-haiku-4-5-20251001': { label: '~$0.25 / 1M in', cls: 'cheap' },
+  'claude-sonnet-4-5':         { label: '~$3 / 1M in',   cls: 'mid'   },
+  'claude-opus-4-8':           { label: '~$15 / 1M in',  cls: ''      },
+};
+
+let userPickedModel = false; // true once user manually changes the model select
 
 function getOutputMode() {
   return document.querySelector('input[name="output-mode"]:checked')?.value || 'modernize';
@@ -991,11 +1024,43 @@ function getOutputMode() {
 function getTranslateLang() {
   return translateLangEl.value || 'русский';
 }
+function getModel() {
+  return modelSelectEl.value;
+}
+
 function updateResultPanelTitle() {
   const titleEl = document.getElementById('result-panel-title');
   if (getOutputMode() === 'modernize') titleEl.textContent = 'Modernes Deutsch';
   else titleEl.textContent = `Перевод · ${getTranslateLang()}`;
 }
+
+function updateModelCostLabel() {
+  const info = MODEL_COST[modelSelectEl.value];
+  const el   = document.getElementById('model-cost-label');
+  el.textContent = info ? info.label : '';
+  el.className   = 'model-cost' + (info?.cls ? ' ' + info.cls : '');
+}
+
+// Auto-switch model default when output mode changes (unless user picked manually)
+document.querySelectorAll('input[name="output-mode"]').forEach(r => {
+  r.addEventListener('change', () => {
+    translateLangEl.style.display = r.value === 'translate' && r.checked ? 'inline-block' : 'none';
+    if (!userPickedModel) {
+      modelSelectEl.value = MODEL_DEFAULTS[r.value] || MODEL_DEFAULTS.modernize;
+      updateModelCostLabel();
+    }
+    updateResultPanelTitle();
+  });
+});
+
+modelSelectEl.addEventListener('change', () => {
+  userPickedModel = true;
+  updateModelCostLabel();
+});
+
+// Init
+modelSelectEl.value = MODEL_DEFAULTS.modernize;
+updateModelCostLabel();
 
 // ── PDF loading ───────────────────────────────────────────────────────────────
 
@@ -1297,7 +1362,7 @@ async function callClaude(b64, mediaType) {
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-5',
+      model: getModel(),
       max_tokens: 4000,
       system: prompt,
       messages: [{
@@ -1682,7 +1747,7 @@ async function translateUrlDirect(imageUrl) {
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-5',
+      model: getModel(),
       max_tokens: 4000,
       system: prompt,
       messages: [{
@@ -1729,7 +1794,7 @@ async function translateOcr(ocrText) {
         'anthropic-dangerous-direct-browser-access': 'true',
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: getModel(),
         max_tokens: 4000,
         system: prompt,
         messages: [{ role: 'user', content: ocrText }]
