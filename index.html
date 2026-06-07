@@ -903,6 +903,19 @@
     </div>
     <div id="secondary-body">
 
+      <div id="secondary-mode-bar" style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;flex-wrap:wrap;">
+        <span style="font-size:0.78rem;color:var(--text-2);font-weight:500">Output:</span>
+        <button id="sec-mode-modernize" class="mode-btn active" onclick="setSecMode('modernize')" data-i18n="mode_modernize">Modern German</button>
+        <button id="sec-mode-translate" class="mode-btn" onclick="setSecMode('translate')" data-i18n="mode_translate">Translation</button>
+        <select id="sec-translate-lang" style="display:none;font-family:inherit;font-size:0.78rem;padding:0.25rem 0.5rem;border:1px solid var(--border-2);border-radius:var(--radius-sm);background:var(--surface)">
+          <option value="English">English</option>
+          <option value="Русский">Русский</option>
+          <option value="Français">Français</option>
+          <option value="Español">Español</option>
+          <option value="中文">中文</option>
+        </select>
+      </div>
+
       <div id="url-bar">
         <label for="url-input">dlc.mpg.de:</label>
         <input id="url-input" type="url" placeholder="https://dlc.mpg.de/fullscreen/…/5/">
@@ -2044,10 +2057,14 @@ document.querySelectorAll('input[name="page-sel"]').forEach(r => {
 
 // ── Claude API call ───────────────────────────────────────────────────────────
 
-async function callClaude(b64, mediaType) {
+async function callClaudeWithPrompt(b64, mediaType, prompt) {
+  return callClaude(b64, mediaType, prompt);
+}
+
+async function callClaude(b64, mediaType, _prompt) {
   const mode   = getOutputMode();
   const lang   = getTranslateLang();
-  const prompt = mode === 'modernize' ? PROMPT_MODERNIZE() : PROMPT_TRANSLATE(lang);
+  const prompt = _prompt || (mode === 'modernize' ? PROMPT_MODERNIZE() : PROMPT_TRANSLATE(lang));
   const body   = {
     model: getModel(),
     max_tokens: 4000,
@@ -2239,6 +2256,18 @@ document.getElementById('copy-btn').addEventListener('click', () => {
 });
 
 // ── Secondary section toggle ──────────────────────────────────────────────────
+
+function setSecMode(mode) {
+  document.getElementById('sec-mode-modernize').classList.toggle('active', mode === 'modernize');
+  document.getElementById('sec-mode-translate').classList.toggle('active', mode === 'translate');
+  document.getElementById('sec-translate-lang').style.display = mode === 'translate' ? 'block' : 'none';
+}
+function getSecMode() {
+  return document.getElementById('sec-mode-modernize').classList.contains('active') ? 'modernize' : 'translate';
+}
+function getSecLang() {
+  return document.getElementById('sec-translate-lang').value;
+}
 
 document.getElementById('secondary-toggle').addEventListener('click', function() {
   this.classList.toggle('open');
@@ -2437,8 +2466,11 @@ function blobToDataUrl(blob) {
 }
 
 async function translateSingle(b64, mediaType) {
+  const mode   = getSecMode();
+  const lang   = getSecLang();
+  const prompt = mode === 'modernize' ? PROMPT_MODERNIZE() : PROMPT_TRANSLATE(lang);
   try {
-    const result = await callClaude(b64, mediaType);
+    const result = await callClaudeWithPrompt(b64, mediaType, prompt);
     lastResult = result;
     render(result);
     document.getElementById('copy-btn').style.display = 'block'; document.getElementById('reprocess-btn').style.display = 'block';
@@ -2453,8 +2485,8 @@ async function translateSingle(b64, mediaType) {
 async function translateUrlDirect(imageUrl) {
   const apiKey = getApiKey();
   if (!apiKey) throw new Error(t('error_apikey'));
-  const mode   = getOutputMode();
-  const lang   = getTranslateLang();
+  const mode   = getSecMode();
+  const lang   = getSecLang();
   const prompt = mode === 'modernize' ? PROMPT_MODERNIZE() : PROMPT_TRANSLATE(lang);
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -2500,8 +2532,8 @@ async function translateOcr(ocrText) {
   try {
     const apiKey = getApiKey();
     if (!apiKey) throw new Error(t('error_apikey'));
-    const mode   = getOutputMode();
-    const lang   = getTranslateLang();
+    const mode   = getSecMode();
+    const lang   = getSecLang();
     const prompt = mode === 'modernize' ? PROMPT_TEXT_MODERNIZE() : PROMPT_TEXT_TRANSLATE(lang);
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
