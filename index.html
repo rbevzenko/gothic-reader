@@ -742,10 +742,13 @@
     <button class="lang-btn" data-lang="ru" onclick="setLang('ru')">RU</button>
     <button class="lang-btn" data-lang="fr" onclick="setLang('fr')">FR</button>
   </div>
+  <!-- Account link (always visible when hosted mode) -->
+  <div id="account-header-link" style="display:none; align-items:center; gap:0.5rem;">
+    <a href="/account" style="font-family:inherit;font-size:0.78rem;font-weight:500;padding:0.28rem 0.75rem;background:none;border:1px solid var(--border-2);border-radius:var(--radius-sm);color:var(--text-2);cursor:pointer;text-decoration:none;">My account</a>
+  </div>
   <!-- Credits badge (shown only in hosted mode) -->
-  <div id="credits-bar" style="display:none; align-items:center; gap:0.5rem; margin-left:auto;">
+  <div id="credits-bar" style="display:none; align-items:center; gap:0.5rem;">
     <span id="credits-badge" style="font-size:0.75rem; color:var(--text-2); font-weight:500;"></span>
-    <a href="/account" style="font-family:inherit;font-size:0.75rem;font-weight:500;padding:0.25rem 0.7rem;background:none;border:1px solid var(--border-2);border-radius:var(--radius-sm);color:var(--text-2);cursor:pointer;text-decoration:none;">Account</a>
     <button id="buy-credits-btn" onclick="showBuyModal()" style="font-family:inherit;font-size:0.75rem;font-weight:600;padding:0.25rem 0.75rem;background:var(--accent);border:none;border-radius:var(--radius-sm);color:#fff;cursor:pointer;">Buy pages</button>
   </div>
 </div>
@@ -1452,6 +1455,10 @@ document.getElementById('buy-modal').addEventListener('click', e => {
 
 async function initHostedMode() {
   if (!WORKER_URL) return;
+
+  // Always show account link
+  document.getElementById('account-header-link').style.display = 'flex';
+
   const bar = document.getElementById('credits-bar');
   bar.style.display = 'flex';
 
