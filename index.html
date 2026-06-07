@@ -2562,7 +2562,6 @@ applyLang();
 (async () => {
   const pid = new URLSearchParams(location.search).get('project');
   if (pid && WORKER_URL) {
-    await updateCreditsDisplay();
     await loadProjectView(pid);
   }
 })();
