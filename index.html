@@ -876,6 +876,7 @@
       <div class="panel-header">
         <span class="panel-title" id="result-panel-title">Modern German</span>
         <div class="panel-actions">
+          <button id="reprocess-btn" style="display:none" data-i18n="reprocess_btn">↺ Re-process</button>
           <button id="copy-btn" data-i18n="copy_btn">Copy</button>
           <button id="page-save-btn">↓ PDF</button>
         </div>
@@ -956,6 +957,7 @@ const TRANSLATIONS = {
     orig_panel_title: 'Original · Fraktur',
     orig_empty: 'Load a PDF or select a page',
     copy_btn: 'Copy',
+    reprocess_btn: '↺ Re-process',
     loading_reading: 'Reading Gothic script…',
     result_empty: 'Result will appear here',
     secondary_label: 'Single page — URL or image',
@@ -1022,6 +1024,7 @@ const TRANSLATIONS = {
     orig_panel_title: 'Original · Fraktur',
     orig_empty: 'PDF laden oder Seite auswählen',
     copy_btn: 'Kopieren',
+    reprocess_btn: '↺ Neu verarbeiten',
     loading_reading: 'Lese Frakturschrift…',
     result_empty: 'Ergebnis erscheint hier',
     secondary_label: 'Einzelseite — URL oder Bild',
@@ -1087,6 +1090,7 @@ const TRANSLATIONS = {
     orig_panel_title: 'Оригинал · Fraktur',
     orig_empty: 'Загрузите PDF или выберите страницу',
     copy_btn: 'Копировать',
+    reprocess_btn: '↺ Переработать',
     loading_reading: 'Читаю готический шрифт…',
     result_empty: 'Здесь появится результат',
     secondary_label: 'Одна страница — URL или изображение',
@@ -1152,6 +1156,7 @@ const TRANSLATIONS = {
     orig_panel_title: 'Original · Fraktur',
     orig_empty: 'Chargez un PDF ou sélectionnez une page',
     copy_btn: 'Copier',
+    reprocess_btn: '↺ Retraiter',
     loading_reading: "Lecture de l'écriture gothique…",
     result_empty: 'Le résultat apparaîtra ici',
     secondary_label: 'Page unique — URL ou image',
@@ -1254,7 +1259,7 @@ Regeln:
 1. Lies den Frakturtext genau, beachte archaische Orthographie.
 2. Gib den Text in moderner deutscher Rechtschreibung wieder: ſ→s, Majuskelregeln modernisieren, veraltete Schreibweisen aktualisieren.
 3. Lateinische Passagen bleiben im Original.
-4. Jeder Absatz des Originals = ein separates Element im Array.
+4. Jeder Absatz des Originals = ein separates Element im Array. Fußnoten (am Seitenende, oft mit Ziffern oder Sternchen markiert) ebenfalls als eigene Elemente aufnehmen.
 5. ${latin ? 'Lateinische Fragmente separat mit Übersetzung und Quelle auflisten.' : 'latin_fragments immer als leeres Array zurückgeben.'}
 6. Antworte NUR mit gültigem JSON — kein Markdown, keine Präambel.
 
@@ -1274,7 +1279,7 @@ function PROMPT_TRANSLATE(lang) {
 1. Основной текст — немецкий в Fraktur. Читай точно, учитывая архаичную орфографию.
 2. ${latin ? 'Латинские слова обычно набраны антиквой — выделяй их отдельно.' : 'latin_fragments всегда возвращай пустым массивом.'}
 3. ${latin ? 'Для латинских фрагментов: дай перевод + источник.' : ''}
-4. Каждый абзац оригинала — отдельный элемент массива.
+4. Каждый абзац оригинала — отдельный элемент массива. Сноски (в нижней части страницы, обычно обозначены цифрами или звёздочками) тоже включай — переводи их как обычный текст.
 5. Отвечай ТОЛЬКО валидным JSON — без markdown, без преамбулы.
 
 {
@@ -1291,7 +1296,7 @@ Du erhältst OCR-Text einer Seite. Modernisiere die Orthographie und gib den Tex
 
 Regeln:
 1. Modernisiere: ſ→s, veraltete Schreibweisen aktualisieren.
-2. Jeden Absatz separat im Array.
+2. Jeden Absatz separat im Array. Fußnoten ebenfalls als eigene Elemente aufnehmen.
 3. ${latin ? 'Lateinische Fragmente separat mit Übersetzung und Quelle.' : 'latin_fragments als leeres Array.'}
 4. Nur gültiges JSON — kein Markdown.
 
@@ -1311,7 +1316,7 @@ function PROMPT_TEXT_TRANSLATE(lang) {
 1. ВСЕ элементы массива paragraphs — ТОЛЬКО на ${lang}.
 2. title ОБЯЗАТЕЛЬНО переведи на ${lang}.
 3. ${latin ? 'Латинские слова выделяй отдельно с переводом и источником.' : 'latin_fragments всегда возвращай пустым массивом.'}
-4. Каждый абзац — отдельный элемент. Только JSON.
+4. Каждый абзац — отдельный элемент. Сноски тоже переводи и включай как отдельные элементы. Только JSON.
 
 {
   "title": "заголовок на ${lang}",
@@ -1732,6 +1737,7 @@ async function openPdfPage(pageNum) {
   origImg.src = dataUrl; origImg.style.display = 'block'; origEmpty.style.display = 'none';
 
   const copyBtn = document.getElementById('copy-btn');
+  const reprocessBtn = document.getElementById('reprocess-btn');
   document.getElementById('loading').style.display = 'none';
 
   if (pdfResults[pageNum]) {
@@ -1739,6 +1745,7 @@ async function openPdfPage(pageNum) {
     render(lastResult);
     copyBtn.style.display = 'block';
     document.getElementById('page-save-btn').style.display = 'block';
+    reprocessBtn.style.display = 'block';
   } else {
     lastResult = null;
     document.getElementById('translation').innerHTML = `<div class="empty">
@@ -1752,6 +1759,7 @@ async function openPdfPage(pageNum) {
     </div>`;
     copyBtn.style.display = 'none';
     document.getElementById('page-save-btn').style.display = 'none';
+    reprocessBtn.style.display = 'none';
   }
 }
 
@@ -1767,6 +1775,14 @@ document.getElementById('nav-prev').addEventListener('click', () => {
 });
 document.getElementById('nav-next').addEventListener('click', () => {
   if (selectedPdfPage < totalPages) openPdfPage(selectedPdfPage + 1);
+});
+
+document.getElementById('reprocess-btn').addEventListener('click', () => {
+  if (!selectedPdfPage) return;
+  delete pdfResults[selectedPdfPage];
+  pdfThumbEls[selectedPdfPage]?.classList.remove('done');
+  document.getElementById('reprocess-btn').style.display = 'none';
+  processSinglePage(selectedPdfPage);
 });
 
 // ── Single-page processing ────────────────────────────────────────────────────
