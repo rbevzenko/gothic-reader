@@ -1547,6 +1547,23 @@ async function initHostedMode() {
   const credits = await fetchCredits();
   updateCreditsBadge(credits ?? 0);
 
+  // Restrict model selection to admin user
+  try {
+    const token = getSessionToken();
+    if (token) {
+      const r = await fetch(`${WORKER_URL}/api/auth/me`, { headers: { 'Authorization': 'Bearer ' + token } });
+      const d = await r.json();
+      if (d.email !== 'rbevzenko@gmail.com') {
+        const ms = document.getElementById('model-select');
+        ms.value = 'claude-haiku-4-5-20251001';
+        ms.disabled = true;
+        ms.style.pointerEvents = 'none';
+        ms.style.opacity = '0.5';
+      }
+    }
+  } catch {}
+
+
   // Handle post-payment redirect
   const params = new URLSearchParams(location.search);
   if (params.get('payment') === 'ok') {
