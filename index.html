@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Gothic Reader — Fraktur Modernisierung</title>
+<title>Gothic Reader — Fraktur Modernization</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -367,7 +367,6 @@
 
   /* Save PDF button */
   #save-pdf-btn {
-    display: none;
     font-family: inherit;
     font-size: 0.85rem;
     font-weight: 600;
@@ -692,6 +691,18 @@
   #page-list-input:disabled { opacity: 0.35; }
   .page-sep { color: var(--text-3); }
 
+  /* Language switcher */
+  #lang-switcher { display: flex; gap: 0.2rem; align-items: center; margin-left: auto; }
+  .lang-btn {
+    font-family: inherit; font-size: 0.7rem; font-weight: 600;
+    padding: 0.18rem 0.45rem;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: none; color: var(--text-2); cursor: pointer;
+    transition: all 0.12s; letter-spacing: 0.02em;
+  }
+  .lang-btn:hover { background: var(--bg); color: var(--text); }
+  .lang-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
   /* Model selector */
   #model-select {
     font-family: inherit;
@@ -724,18 +735,24 @@
   <span class="logo-icon">📖</span>
   <h1>Gothic Reader</h1>
   <span class="sep">·</span>
-  <p>Fraktur → Modernes Deutsch · Modernisierung &amp; Übersetzung</p>
+  <p data-i18n="subtitle">Fraktur → Modern German · Modernization &amp; Translation</p>
+  <div id="lang-switcher">
+    <button class="lang-btn active" data-lang="en" onclick="setLang('en')">EN</button>
+    <button class="lang-btn" data-lang="de" onclick="setLang('de')">DE</button>
+    <button class="lang-btn" data-lang="ru" onclick="setLang('ru')">RU</button>
+    <button class="lang-btn" data-lang="fr" onclick="setLang('fr')">FR</button>
+  </div>
 </div>
 
 <div id="app">
 
   <!-- API key -->
   <div id="apikey-bar">
-    <label for="apikey-input">Anthropic API Key:</label>
+    <label for="apikey-input" data-i18n="apikey_label">Anthropic API Key:</label>
     <input id="apikey-input" type="password" placeholder="sk-ant-…" autocomplete="off">
   </div>
-  <div id="apikey-saved" style="display:none">
-    API ключ сохранён. <a id="apikey-change">Изменить</a>
+  <div id="apikey-saved" style="display:none" data-i18n-html="apikey_saved_html">
+    API key saved. <a id="apikey-change">Change</a>
   </div>
 
   <!-- ── Main PDF workflow ── -->
@@ -743,15 +760,15 @@
 
     <div id="pdf-drop-zone">
       <div class="icon">📕</div>
-      <strong>PDF-Datei laden</strong>
-      <span>Загрузите PDF-книгу · Программа преобразует готический шрифт в современный текст</span>
+      <strong data-i18n="drop_title">Load PDF File</strong>
+      <span data-i18n="drop_hint">Upload a PDF book · The app converts Gothic script to modern text</span>
       <input id="pdf-file-input" type="file" accept="application/pdf" style="display:none">
     </div>
 
     <!-- Thumbnails strip -->
     <div id="pdf-pages-bar">
       <div id="pdf-pages-header">
-        <span class="title">Seiten · Страницы</span>
+        <span class="title" data-i18n="pages_bar_title">Pages</span>
         <span id="pdf-page-count"></span>
       </div>
       <div id="pdf-pages-strip"></div>
@@ -759,41 +776,41 @@
 
     <!-- Mode + Process button -->
     <div id="mode-bar">
-      <span class="mode-label">Вывод:</span>
+      <span class="mode-label" data-i18n="output_label">Output:</span>
       <div class="mode-options">
-        <label><input type="radio" name="output-mode" value="modernize" checked> Modernes Deutsch</label>
-        <label><input type="radio" name="output-mode" value="translate"> Перевод:</label>
+        <label><input type="radio" name="output-mode" value="modernize" checked> <span data-i18n="mode_modernize">Modern German</span></label>
+        <label><input type="radio" name="output-mode" value="translate"> <span data-i18n="mode_translate">Translation:</span></label>
         <select id="translate-lang">
-          <option value="русский">Русский</option>
-          <option value="English">English</option>
-          <option value="français">Français</option>
-          <option value="polski">Polski</option>
+          <option value="русский" data-i18n-opt="lang_ru">Russian</option>
+          <option value="English" data-i18n-opt="lang_en">English</option>
+          <option value="français" data-i18n-opt="lang_fr">French</option>
+          <option value="polski" data-i18n-opt="lang_pl">Polish</option>
         </select>
       </div>
-      <span class="mode-label" style="margin-left:0.5rem">Модель:</span>
+      <span class="mode-label" style="margin-left:0.5rem" data-i18n="model_label">Model:</span>
       <select id="model-select">
-        <option value="claude-haiku-4-5-20251001">Haiku 4.5 — быстро, дёшево</option>
-        <option value="claude-sonnet-4-5">Sonnet 4.5 — точнее, дороже</option>
-        <option value="claude-opus-4-8">Opus 4 — максимум качества</option>
+        <option value="claude-haiku-4-5-20251001" data-i18n-opt="model_haiku">Haiku 4.5 — fast, cheap</option>
+        <option value="claude-sonnet-4-5" data-i18n-opt="model_sonnet">Sonnet 4.5 — more accurate</option>
+        <option value="claude-opus-4-8" data-i18n-opt="model_opus">Opus 4 — max quality</option>
       </select>
       <span class="model-cost" id="model-cost-label"></span>
       <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.78rem;color:var(--text-2);cursor:pointer;margin-left:0.5rem;white-space:nowrap">
-        <input type="checkbox" id="latin-toggle"> Латинские фрагменты
+        <input type="checkbox" id="latin-toggle"> <span data-i18n="latin_toggle">Latin fragments</span>
       </label>
       <div class="spacer"></div>
-      <button id="process-all-btn"><span>▶</span> Обработать все страницы</button>
+      <button id="process-all-btn"><span>▶</span> <span data-i18n="process_btn">Process all pages</span></button>
     </div>
 
     <!-- Page selection -->
     <div id="page-sel-row">
-      <span class="mode-label">Страницы:</span>
+      <span class="mode-label" data-i18n="pages_label">Pages:</span>
       <div class="page-sel-options">
-        <label><input type="radio" name="page-sel" value="all" checked> Все</label>
-        <label><input type="radio" name="page-sel" value="range"> Интервал</label>
-        <input id="page-from" type="number" min="1" placeholder="от" class="page-num-input" disabled>
+        <label><input type="radio" name="page-sel" value="all" checked> <span data-i18n="page_all">All</span></label>
+        <label><input type="radio" name="page-sel" value="range"> <span data-i18n="page_range">Range</span></label>
+        <input id="page-from" type="number" min="1" data-i18n-placeholder="page_from_ph" placeholder="from" class="page-num-input" disabled>
         <span class="page-sep">—</span>
-        <input id="page-to" type="number" min="1" placeholder="до" class="page-num-input" disabled>
-        <label><input type="radio" name="page-sel" value="list"> Список</label>
+        <input id="page-to" type="number" min="1" data-i18n-placeholder="page_to_ph" placeholder="to" class="page-num-input" disabled>
+        <label><input type="radio" name="page-sel" value="list"> <span data-i18n="page_list">List</span></label>
         <input id="page-list-input" type="text" placeholder="1, 3, 5–8, 12" disabled>
       </div>
     </div>
@@ -803,13 +820,13 @@
       <div id="progress-wrap"><div id="progress-fill"></div></div>
       <span id="progress-text">0 / 0</span>
       <span id="progress-eta"></span>
-      <button id="cancel-btn">Отмена</button>
+      <button id="cancel-btn" data-i18n="cancel_btn">Cancel</button>
     </div>
 
   </div>
 
   <!-- Save PDF -->
-  <button id="save-pdf-btn">↓ Сохранить результат как PDF</button>
+  <button id="save-pdf-btn" data-i18n="save_pdf_btn">↓ Save result as PDF</button>
 
   <!-- Page viewer (original + result) -->
   <div id="columns" style="display:none">
@@ -817,7 +834,7 @@
     <!-- Left: original -->
     <div class="panel">
       <div class="panel-header">
-        <span class="panel-title">Original · Fraktur</span>
+        <span class="panel-title" data-i18n="orig_panel_title">Original · Fraktur</span>
         <div class="panel-nav">
           <button id="nav-prev">←</button>
           <span id="nav-label"></span>
@@ -825,27 +842,27 @@
         </div>
       </div>
       <div class="panel-body">
-        <img id="orig-img" alt="оригинал" referrerpolicy="no-referrer">
-        <div class="empty" id="orig-empty">Загрузите PDF или выберите страницу</div>
+        <img id="orig-img" alt="original" referrerpolicy="no-referrer">
+        <div class="empty" id="orig-empty" data-i18n="orig_empty">Load a PDF or select a page</div>
       </div>
     </div>
 
     <!-- Right: result -->
     <div class="panel">
       <div class="panel-header">
-        <span class="panel-title" id="result-panel-title">Modernes Deutsch</span>
+        <span class="panel-title" id="result-panel-title">Modern German</span>
         <div class="panel-actions">
-          <button id="copy-btn">Kopieren</button>
+          <button id="copy-btn" data-i18n="copy_btn">Copy</button>
           <button id="page-save-btn">↓ PDF</button>
         </div>
       </div>
       <div class="panel-body">
         <div class="loading" id="loading">
           <span class="spinner">⟳</span>
-          <span id="loading-msg">Читаю готический шрифт…</span>
+          <span id="loading-msg" data-i18n="loading_reading">Reading Gothic script…</span>
         </div>
         <div id="translation">
-          <div class="empty">Здесь появится результат</div>
+          <div class="empty" data-i18n="result_empty">Result will appear here</div>
         </div>
       </div>
     </div>
@@ -855,7 +872,7 @@
   <!-- ── Secondary: single-page (URL / image) ── -->
   <div id="secondary-section">
     <div id="secondary-toggle">
-      <span>Einzelseite · Одна страница — URL или изображение</span>
+      <span data-i18n="secondary_label">Single page — URL or image</span>
       <span class="arrow">▾</span>
     </div>
     <div id="secondary-body">
@@ -863,18 +880,18 @@
       <div id="url-bar">
         <label for="url-input">dlc.mpg.de:</label>
         <input id="url-input" type="url" placeholder="https://dlc.mpg.de/fullscreen/…/5/">
-        <button id="url-btn">Перевести</button>
+        <button id="url-btn" data-i18n="url_btn">Process</button>
       </div>
 
-      <div class="or-divider">— или скриншот —</div>
+      <div class="or-divider" data-i18n="or_divider">— or screenshot —</div>
 
       <div id="upload-zone">
-        📄 <strong>Перетащите скриншот</strong> или нажмите для выбора · PNG · JPG · WebP
+        <span data-i18n="upload_zone">📄 Drop a screenshot or click to select · PNG · JPG · WebP</span>
         <input id="file-input" type="file" accept="image/*" style="display:none">
       </div>
 
-      <div id="hint">
-        <strong>Совет:</strong> ссылки формата <code>dlc.mpg.de/fullscreen/{id}/{page}/</code> — приложение само скачает OCR и изображение.
+      <div id="hint" data-i18n-html="hint_html">
+        <strong>Tip:</strong> Links of the format <code>dlc.mpg.de/fullscreen/{id}/{page}/</code> — the app fetches OCR and image automatically.
         <span id="screenshot-server-indicator" style="margin-left:0.8rem;font-size:0.68rem"></span>
       </div>
 
@@ -884,6 +901,315 @@
 </div><!-- #app -->
 
 <script>
+// ── i18n ──────────────────────────────────────────────────────────────────────
+
+const TRANSLATIONS = {
+  en: {
+    subtitle: 'Fraktur → Modern German · Modernization & Translation',
+    apikey_label: 'Anthropic API Key:',
+    apikey_saved_html: 'API key saved. <a id="apikey-change">Change</a>',
+    drop_title: 'Load PDF File',
+    drop_hint: 'Upload a PDF book · The app converts Gothic script to modern text',
+    pages_bar_title: 'Pages',
+    output_label: 'Output:',
+    mode_modernize: 'Modern German',
+    mode_translate: 'Translation:',
+    model_label: 'Model:',
+    model_haiku: 'Haiku 4.5 — fast, cheap',
+    model_sonnet: 'Sonnet 4.5 — more accurate',
+    model_opus: 'Opus 4 — max quality',
+    lang_ru: 'Russian', lang_en: 'English', lang_fr: 'French', lang_pl: 'Polish',
+    latin_toggle: 'Latin fragments',
+    process_btn: 'Process all pages',
+    pages_label: 'Pages:',
+    page_all: 'All',
+    page_range: 'Range',
+    page_from_ph: 'from',
+    page_to_ph: 'to',
+    page_list: 'List',
+    cancel_btn: 'Cancel',
+    save_pdf_btn: '↓ Save result as PDF',
+    orig_panel_title: 'Original · Fraktur',
+    orig_empty: 'Load a PDF or select a page',
+    copy_btn: 'Copy',
+    loading_reading: 'Reading Gothic script…',
+    result_empty: 'Result will appear here',
+    secondary_label: 'Single page — URL or image',
+    url_btn: 'Process',
+    or_divider: '— or screenshot —',
+    upload_zone: '📄 Drop a screenshot or click to select · PNG · JPG · WebP',
+    hint_html: '<strong>Tip:</strong> Links of the format <code>dlc.mpg.de/fullscreen/{id}/{page}/</code> — the app fetches OCR and image automatically.<span id="screenshot-server-indicator" style="margin-left:0.8rem;font-size:0.68rem"></span>',
+    // dynamic
+    loading_pdf: 'Loading…',
+    pages_count: 'pages',
+    rendering_page: 'Rendering page…',
+    page_not_processed: 'Page {n} not processed.',
+    process_this_page: 'Process this page',
+    processing_page: 'Processing page {n}…',
+    batch_page: 'Page {n} / {t}…',
+    eta_calculating: '· calculating…',
+    eta_remaining: '· {s} remaining',
+    eta_avg: '· {s}/page avg',
+    batch_cancelled: 'Cancelled',
+    batch_done: '{d} / {t} done',
+    loading_url: 'Loading…',
+    loading_ocr: 'Processing OCR text…',
+    screenshot_taking: 'Taking screenshot…',
+    opened_in_tab: 'Original opened in an adjacent tab',
+    server_connected: '● Screenshot server connected',
+    server_disconnected: '○ Screenshot server not running',
+    error_apikey: 'Enter Anthropic API Key',
+    error_network: 'No connection to api.anthropic.com. Check VPN / internet.',
+    error_no_json: 'No JSON in response',
+    error_url_format: 'Expected format: dlc.mpg.de/fullscreen/{id}/{page}/ or dlc.mpg.de/image/{id}/{page}/',
+    result_modernize: 'Modern German',
+    result_translate: 'Translation · {lang}',
+    eta_sec: '~{n} sec',
+    eta_min_s: '~{m} min {s} sec',
+    eta_min: '~{m} min',
+    eta_hr_m: '~{h} h {m} min',
+    eta_hr: '~{h} h',
+  },
+  de: {
+    subtitle: 'Fraktur → Modernes Deutsch · Modernisierung & Übersetzung',
+    apikey_label: 'Anthropic API Key:',
+    apikey_saved_html: 'API-Schlüssel gespeichert. <a id="apikey-change">Ändern</a>',
+    drop_title: 'PDF-Datei laden',
+    drop_hint: 'PDF-Buch hochladen · Die App wandelt Frakturschrift in modernen Text um',
+    pages_bar_title: 'Seiten',
+    output_label: 'Ausgabe:',
+    mode_modernize: 'Modernes Deutsch',
+    mode_translate: 'Übersetzung:',
+    model_label: 'Modell:',
+    model_haiku: 'Haiku 4.5 — schnell, günstig',
+    model_sonnet: 'Sonnet 4.5 — genauer',
+    model_opus: 'Opus 4 — maximale Qualität',
+    lang_ru: 'Russisch', lang_en: 'Englisch', lang_fr: 'Französisch', lang_pl: 'Polnisch',
+    latin_toggle: 'Lateinische Fragmente',
+    process_btn: 'Alle Seiten verarbeiten',
+    pages_label: 'Seiten:',
+    page_all: 'Alle',
+    page_range: 'Bereich',
+    page_from_ph: 'von',
+    page_to_ph: 'bis',
+    page_list: 'Liste',
+    cancel_btn: 'Abbrechen',
+    save_pdf_btn: '↓ Ergebnis als PDF speichern',
+    orig_panel_title: 'Original · Fraktur',
+    orig_empty: 'PDF laden oder Seite auswählen',
+    copy_btn: 'Kopieren',
+    loading_reading: 'Lese Frakturschrift…',
+    result_empty: 'Ergebnis erscheint hier',
+    secondary_label: 'Einzelseite — URL oder Bild',
+    url_btn: 'Verarbeiten',
+    or_divider: '— oder Screenshot —',
+    upload_zone: '📄 Screenshot hineinziehen oder klicken · PNG · JPG · WebP',
+    hint_html: '<strong>Tipp:</strong> Links im Format <code>dlc.mpg.de/fullscreen/{id}/{page}/</code> — die App lädt OCR und Bild automatisch.<span id="screenshot-server-indicator" style="margin-left:0.8rem;font-size:0.68rem"></span>',
+    loading_pdf: 'Lade…',
+    pages_count: 'Seiten',
+    rendering_page: 'Rendere Seite…',
+    page_not_processed: 'Seite {n} nicht verarbeitet.',
+    process_this_page: 'Diese Seite verarbeiten',
+    processing_page: 'Verarbeite Seite {n}…',
+    batch_page: 'Seite {n} / {t}…',
+    eta_calculating: '· berechne…',
+    eta_remaining: '· noch {s}',
+    eta_avg: '· {s}/Seite ø',
+    batch_cancelled: 'Abgebrochen',
+    batch_done: '{d} / {t} fertig',
+    loading_url: 'Lade…',
+    loading_ocr: 'Verarbeite OCR-Text…',
+    screenshot_taking: 'Erstelle Screenshot…',
+    opened_in_tab: 'Original in neuem Tab geöffnet',
+    server_connected: '● Screenshot-Server verbunden',
+    server_disconnected: '○ Screenshot-Server nicht gestartet',
+    error_apikey: 'Anthropic API Key eingeben',
+    error_network: 'Keine Verbindung zu api.anthropic.com. VPN / Internet prüfen.',
+    error_no_json: 'Kein JSON in der Antwort',
+    error_url_format: 'Erwartet: dlc.mpg.de/fullscreen/{id}/{page}/ oder dlc.mpg.de/image/{id}/{page}/',
+    result_modernize: 'Modernes Deutsch',
+    result_translate: 'Übersetzung · {lang}',
+    eta_sec: '~{n} Sek.',
+    eta_min_s: '~{m} Min. {s} Sek.',
+    eta_min: '~{m} Min.',
+    eta_hr_m: '~{h} Std. {m} Min.',
+    eta_hr: '~{h} Std.',
+  },
+  ru: {
+    subtitle: 'Fraktur → Современный немецкий · Модернизация и перевод',
+    apikey_label: 'Anthropic API Key:',
+    apikey_saved_html: 'API ключ сохранён. <a id="apikey-change">Изменить</a>',
+    drop_title: 'Загрузить PDF',
+    drop_hint: 'Загрузите PDF-книгу · Программа преобразует готический шрифт в современный текст',
+    pages_bar_title: 'Страницы',
+    output_label: 'Вывод:',
+    mode_modernize: 'Совр. немецкий',
+    mode_translate: 'Перевод:',
+    model_label: 'Модель:',
+    model_haiku: 'Haiku 4.5 — быстро, дёшево',
+    model_sonnet: 'Sonnet 4.5 — точнее, дороже',
+    model_opus: 'Opus 4 — максимум качества',
+    lang_ru: 'Русский', lang_en: 'Английский', lang_fr: 'Французский', lang_pl: 'Польский',
+    latin_toggle: 'Латинские фрагменты',
+    process_btn: 'Обработать все страницы',
+    pages_label: 'Страницы:',
+    page_all: 'Все',
+    page_range: 'Интервал',
+    page_from_ph: 'от',
+    page_to_ph: 'до',
+    page_list: 'Список',
+    cancel_btn: 'Отмена',
+    save_pdf_btn: '↓ Сохранить результат как PDF',
+    orig_panel_title: 'Оригинал · Fraktur',
+    orig_empty: 'Загрузите PDF или выберите страницу',
+    copy_btn: 'Копировать',
+    loading_reading: 'Читаю готический шрифт…',
+    result_empty: 'Здесь появится результат',
+    secondary_label: 'Одна страница — URL или изображение',
+    url_btn: 'Перевести',
+    or_divider: '— или скриншот —',
+    upload_zone: '📄 Перетащите скриншот или нажмите для выбора · PNG · JPG · WebP',
+    hint_html: '<strong>Совет:</strong> ссылки формата <code>dlc.mpg.de/fullscreen/{id}/{page}/</code> — приложение само скачает OCR и изображение.<span id="screenshot-server-indicator" style="margin-left:0.8rem;font-size:0.68rem"></span>',
+    loading_pdf: 'Загружаю…',
+    pages_count: 'страниц',
+    rendering_page: 'Рендерю страницу…',
+    page_not_processed: 'Страница {n} не обработана.',
+    process_this_page: 'Обработать эту страницу',
+    processing_page: 'Обрабатываю страницу {n}…',
+    batch_page: 'Страница {n} / {t}…',
+    eta_calculating: '· считаю время…',
+    eta_remaining: '· ещё {s}',
+    eta_avg: '· {s}/стр.',
+    batch_cancelled: 'Отменено',
+    batch_done: '{d} / {t} готово',
+    loading_url: 'Загружаю…',
+    loading_ocr: 'Обрабатываю OCR-текст…',
+    screenshot_taking: 'Делаю скриншот…',
+    opened_in_tab: 'Оригинал открыт в соседней вкладке',
+    server_connected: '● Скриншот-сервер подключён',
+    server_disconnected: '○ Скриншот-сервер не запущен',
+    error_apikey: 'Введите Anthropic API Key',
+    error_network: 'Нет подключения к api.anthropic.com. Проверьте VPN / интернет.',
+    error_no_json: 'Нет JSON в ответе',
+    error_url_format: 'Ожидается формат: dlc.mpg.de/fullscreen/{id}/{page}/ или dlc.mpg.de/image/{id}/{page}/',
+    result_modernize: 'Modernes Deutsch',
+    result_translate: 'Перевод · {lang}',
+    eta_sec: '~{n} сек.',
+    eta_min_s: '~{m} мин. {s} сек.',
+    eta_min: '~{m} мин.',
+    eta_hr_m: '~{h} ч. {m} мин.',
+    eta_hr: '~{h} ч.',
+  },
+  fr: {
+    subtitle: 'Fraktur → Allemand moderne · Modernisation & Traduction',
+    apikey_label: 'Clé API Anthropic :',
+    apikey_saved_html: 'Clé API enregistrée. <a id="apikey-change">Modifier</a>',
+    drop_title: 'Charger un PDF',
+    drop_hint: "Chargez un livre PDF · L'application convertit l'écriture gothique en texte moderne",
+    pages_bar_title: 'Pages',
+    output_label: 'Sortie :',
+    mode_modernize: 'Allemand moderne',
+    mode_translate: 'Traduction :',
+    model_label: 'Modèle :',
+    model_haiku: 'Haiku 4.5 — rapide, économique',
+    model_sonnet: 'Sonnet 4.5 — plus précis',
+    model_opus: 'Opus 4 — qualité maximale',
+    lang_ru: 'Russe', lang_en: 'Anglais', lang_fr: 'Français', lang_pl: 'Polonais',
+    latin_toggle: 'Fragments latins',
+    process_btn: 'Traiter toutes les pages',
+    pages_label: 'Pages :',
+    page_all: 'Toutes',
+    page_range: 'Plage',
+    page_from_ph: 'de',
+    page_to_ph: 'à',
+    page_list: 'Liste',
+    cancel_btn: 'Annuler',
+    save_pdf_btn: '↓ Enregistrer le résultat en PDF',
+    orig_panel_title: 'Original · Fraktur',
+    orig_empty: 'Chargez un PDF ou sélectionnez une page',
+    copy_btn: 'Copier',
+    loading_reading: "Lecture de l'écriture gothique…",
+    result_empty: 'Le résultat apparaîtra ici',
+    secondary_label: 'Page unique — URL ou image',
+    url_btn: 'Traiter',
+    or_divider: "— ou capture d'écran —",
+    upload_zone: "📄 Déposez une capture d'écran ou cliquez · PNG · JPG · WebP",
+    hint_html: '<strong>Conseil :</strong> Les liens au format <code>dlc.mpg.de/fullscreen/{id}/{page}/</code> — l\'application télécharge OCR et image automatiquement.<span id="screenshot-server-indicator" style="margin-left:0.8rem;font-size:0.68rem"></span>',
+    loading_pdf: 'Chargement…',
+    pages_count: 'pages',
+    rendering_page: 'Rendu de la page…',
+    page_not_processed: 'Page {n} non traitée.',
+    process_this_page: 'Traiter cette page',
+    processing_page: 'Traitement de la page {n}…',
+    batch_page: 'Page {n} / {t}…',
+    eta_calculating: '· calcul…',
+    eta_remaining: '· {s} restant',
+    eta_avg: '· {s}/page moy.',
+    batch_cancelled: 'Annulé',
+    batch_done: '{d} / {t} terminé',
+    loading_url: 'Chargement…',
+    loading_ocr: 'Traitement du texte OCR…',
+    screenshot_taking: "Capture d'écran…",
+    opened_in_tab: 'Original ouvert dans un autre onglet',
+    server_connected: '● Serveur de captures connecté',
+    server_disconnected: '○ Serveur de captures non démarré',
+    error_apikey: 'Entrez la clé API Anthropic',
+    error_network: 'Pas de connexion à api.anthropic.com. Vérifiez VPN / Internet.',
+    error_no_json: 'Pas de JSON dans la réponse',
+    error_url_format: 'Format attendu : dlc.mpg.de/fullscreen/{id}/{page}/ ou dlc.mpg.de/image/{id}/{page}/',
+    result_modernize: 'Allemand moderne',
+    result_translate: 'Traduction · {lang}',
+    eta_sec: '~{n} sec',
+    eta_min_s: '~{m} min {s} sec',
+    eta_min: '~{m} min',
+    eta_hr_m: '~{h} h {m} min',
+    eta_hr: '~{h} h',
+  }
+};
+
+let currentLang = localStorage.getItem('gothic_reader_lang') || 'en';
+
+function t(key, vars) {
+  let s = (TRANSLATIONS[currentLang] || TRANSLATIONS.en)[key] ?? TRANSLATIONS.en[key] ?? key;
+  if (vars) Object.keys(vars).forEach(k => { s = s.replaceAll('{' + k + '}', vars[k]); });
+  return s;
+}
+
+function applyLang() {
+  document.documentElement.lang = currentLang;
+
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    el.textContent = t(el.dataset.i18n);
+  });
+
+  document.querySelectorAll('[data-i18n-html]').forEach(el => {
+    el.innerHTML = t(el.dataset.i18nHtml);
+    const changeLink = el.querySelector('#apikey-change');
+    if (changeLink) changeLink.addEventListener('click', doChangeApiKey);
+  });
+
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    el.placeholder = t(el.dataset.i18nPlaceholder);
+  });
+
+  document.querySelectorAll('[data-i18n-opt]').forEach(el => {
+    el.textContent = t(el.dataset.i18nOpt);
+  });
+
+  document.querySelectorAll('.lang-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.lang === currentLang);
+  });
+
+  updateResultPanelTitle();
+  checkScreenshotServer();
+}
+
+function setLang(lang) {
+  currentLang = lang;
+  localStorage.setItem('gothic_reader_lang', lang);
+  applyLang();
+}
+
 // ── Prompts ───────────────────────────────────────────────────────────────────
 
 function latinEnabled() {
@@ -970,6 +1296,7 @@ function PROMPT_TEXT_TRANSLATE(lang) {
   "paragraphs": ["..."],
 ${latin ? LATIN_FIELD : NO_LATIN_FIELD}
 }`;
+}
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -996,12 +1323,22 @@ function getApiKey() {
   return localStorage.getItem(STORAGE_KEY) || apikeyInput.value.trim();
 }
 
+function doChangeApiKey() {
+  apikeyBar.style.display = 'flex';
+  apikeySaved.style.display = 'none';
+  apikeyInput.value = localStorage.getItem(STORAGE_KEY) || '';
+  apikeyInput.focus();
+}
+
 function updateApikeyUI() {
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved) {
     apikeyInput.value = saved;
     apikeyBar.style.display = 'none';
     apikeySaved.style.display = 'block';
+    // Re-apply lang so the #apikey-change link gets its handler
+    const changeLink = document.getElementById('apikey-change');
+    if (changeLink) changeLink.addEventListener('click', doChangeApiKey);
   } else {
     apikeyBar.style.display = 'flex';
     apikeySaved.style.display = 'none';
@@ -1012,12 +1349,10 @@ apikeyInput.addEventListener('change', () => {
   const val = apikeyInput.value.trim();
   if (val) { localStorage.setItem(STORAGE_KEY, val); updateApikeyUI(); }
 });
-document.getElementById('apikey-change').addEventListener('click', () => {
-  apikeyBar.style.display = 'flex';
-  apikeySaved.style.display = 'none';
-  apikeyInput.value = localStorage.getItem(STORAGE_KEY) || '';
-  apikeyInput.focus();
-});
+
+// Initial #apikey-change handler (before applyLang runs)
+document.getElementById('apikey-change').addEventListener('click', doChangeApiKey);
+
 updateApikeyUI();
 
 // ── PDF.js setup ──────────────────────────────────────────────────────────────
@@ -1040,7 +1375,7 @@ const MODEL_COST = {
   'claude-opus-4-8':           { label: '~$15 / 1M in',  cls: ''      },
 };
 
-let userPickedModel = false; // true once user manually changes the model select
+let userPickedModel = false;
 
 function getOutputMode() {
   return document.querySelector('input[name="output-mode"]:checked')?.value || 'modernize';
@@ -1054,8 +1389,12 @@ function getModel() {
 
 function updateResultPanelTitle() {
   const titleEl = document.getElementById('result-panel-title');
-  if (getOutputMode() === 'modernize') titleEl.textContent = 'Modernes Deutsch';
-  else titleEl.textContent = `Перевод · ${getTranslateLang()}`;
+  if (!titleEl) return;
+  if (getOutputMode() === 'modernize') {
+    titleEl.textContent = t('result_modernize');
+  } else {
+    titleEl.textContent = t('result_translate', { lang: getTranslateLang() });
+  }
 }
 
 function updateModelCostLabel() {
@@ -1065,7 +1404,6 @@ function updateModelCostLabel() {
   el.className   = 'model-cost' + (info?.cls ? ' ' + info.cls : '');
 }
 
-// Auto-switch model default when output mode changes (unless user picked manually)
 document.querySelectorAll('input[name="output-mode"]').forEach(r => {
   r.addEventListener('change', () => {
     translateLangEl.style.display = r.value === 'translate' && r.checked ? 'inline-block' : 'none';
@@ -1082,7 +1420,6 @@ modelSelectEl.addEventListener('change', () => {
   updateModelCostLabel();
 });
 
-// Init
 modelSelectEl.value = MODEL_DEFAULTS.modernize;
 updateModelCostLabel();
 
@@ -1102,7 +1439,6 @@ pdfDropZone.addEventListener('drop', e => {
 pdfFileInput.addEventListener('change', e => { if (e.target.files[0]) loadPdf(e.target.files[0]); });
 
 async function loadPdf(file) {
-  // Reset state
   pdfDoc = null; pdfPageImages = {}; pdfResults = {}; pdfThumbEls = {};
   selectedPdfPage = null;
   document.getElementById('pdf-pages-strip').innerHTML = '';
@@ -1111,7 +1447,7 @@ async function loadPdf(file) {
   document.getElementById('batch-progress').style.display = 'none';
 
   const pageCountEl = document.getElementById('pdf-page-count');
-  pageCountEl.textContent = 'Загружаю…';
+  pageCountEl.textContent = t('loading_pdf');
   document.getElementById('pdf-pages-bar').style.display = 'block';
   document.getElementById('mode-bar').style.display = 'flex';
   document.getElementById('page-sel-row').style.display = 'flex';
@@ -1119,9 +1455,8 @@ async function loadPdf(file) {
   const arrayBuffer = await file.arrayBuffer();
   pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   totalPages = pdfDoc.numPages;
-  pageCountEl.textContent = `${totalPages} Seiten`;
+  pageCountEl.textContent = `${totalPages} ${t('pages_count')}`;
 
-  // Render thumbnails progressively
   for (let i = 1; i <= totalPages; i++) {
     const thumb = await renderThumb(i);
     document.getElementById('pdf-pages-strip').appendChild(thumb);
@@ -1133,12 +1468,10 @@ async function renderThumb(pageNum) {
   const vp = page.getViewport({ scale: 70 / page.getViewport({ scale: 1 }).height });
   const w = Math.round(vp.width), h = Math.round(vp.height);
 
-  // Render fully off-screen — не зависит от видимости вкладки
   const offscreen = new OffscreenCanvas(w, h);
   await page.render({ canvasContext: offscreen.getContext('2d'), viewport: vp }).promise;
   const bitmap = offscreen.transferToImageBitmap();
 
-  // Перенести в видимый canvas через bitmaprenderer (или 2d как fallback)
   const canvas = document.createElement('canvas');
   canvas.width = w; canvas.height = h;
   const bitmapCtx = canvas.getContext('bitmaprenderer');
@@ -1165,7 +1498,6 @@ async function getPdfPageImage(pageNum) {
   const page = await pdfDoc.getPage(pageNum);
   const vp = page.getViewport({ scale: 2 });
 
-  // OffscreenCanvas: рендер не зависит от видимости/активности вкладки
   const offscreen = new OffscreenCanvas(vp.width, vp.height);
   await page.render({ canvasContext: offscreen.getContext('2d'), viewport: vp }).promise;
 
@@ -1177,26 +1509,21 @@ async function getPdfPageImage(pageNum) {
 }
 
 async function openPdfPage(pageNum) {
-  // Select thumbnail
   Object.values(pdfThumbEls).forEach(el => el.classList.remove('selected'));
   pdfThumbEls[pageNum]?.classList.add('selected');
   selectedPdfPage = pageNum;
 
-  // Show columns
   document.getElementById('columns').style.display = 'grid';
   updateNavButtons();
 
-  // Show original image
   const origImg   = document.getElementById('orig-img');
   const origEmpty = document.getElementById('orig-empty');
-  origEmpty.textContent = 'Рендерю страницу…'; origEmpty.style.display = 'block';
+  origEmpty.textContent = t('rendering_page'); origEmpty.style.display = 'block';
   origImg.style.display = 'none';
 
   const { dataUrl } = await getPdfPageImage(pageNum);
   origImg.src = dataUrl; origImg.style.display = 'block'; origEmpty.style.display = 'none';
 
-  // Show existing result or empty state
-  const trans  = document.getElementById('translation');
   const copyBtn = document.getElementById('copy-btn');
   document.getElementById('loading').style.display = 'none';
 
@@ -1207,13 +1534,13 @@ async function openPdfPage(pageNum) {
     document.getElementById('page-save-btn').style.display = 'block';
   } else {
     lastResult = null;
-    trans.innerHTML = `<div class="empty">
-      Страница ${pageNum} не обработана.<br>
+    document.getElementById('translation').innerHTML = `<div class="empty">
+      ${t('page_not_processed', { n: pageNum })}<br>
       <button onclick="processSinglePage(${pageNum})" style="
         margin-top:0.8rem; font-family:inherit; font-size:0.78rem; font-weight:500;
         padding:0.35rem 1rem; background:var(--accent);
         border:none; border-radius:var(--radius-sm); cursor:pointer; color:#fff;">
-        Обработать эту страницу
+        ${t('process_this_page')}
       </button>
     </div>`;
     copyBtn.style.display = 'none';
@@ -1244,7 +1571,7 @@ async function processSinglePage(pageNum) {
   const copyBtn = document.getElementById('copy-btn');
 
   loading.style.display = 'block';
-  document.getElementById('loading-msg').textContent = `Обрабатываю страницу ${pageNum}…`;
+  document.getElementById('loading-msg').textContent = t('processing_page', { n: pageNum });
   trans.innerHTML = '';
   copyBtn.style.display = 'none';
 
@@ -1274,15 +1601,15 @@ document.getElementById('process-all-btn').addEventListener('click', () => {
 document.getElementById('cancel-btn').addEventListener('click', () => { batchCancelled = true; });
 
 function formatEta(seconds) {
-  if (seconds < 60)  return `~${Math.round(seconds)} сек.`;
+  if (seconds < 60)  return t('eta_sec', { n: Math.round(seconds) });
   if (seconds < 3600) {
     const m = Math.floor(seconds / 60);
     const s = Math.round(seconds % 60);
-    return s > 0 ? `~${m} мин. ${s} сек.` : `~${m} мин.`;
+    return s > 0 ? t('eta_min_s', { m, s }) : t('eta_min', { m });
   }
   const h = Math.floor(seconds / 3600);
   const m = Math.round((seconds % 3600) / 60);
-  return m > 0 ? `~${h} ч. ${m} мин.` : `~${h} ч.`;
+  return m > 0 ? t('eta_hr_m', { h, m }) : t('eta_hr', { h });
 }
 
 async function startBatch() {
@@ -1302,7 +1629,7 @@ async function startBatch() {
   const total = pagesToProcess.length;
   if (total === 0) { processBtn.disabled = false; return; }
 
-  const times = []; // ms per page, rolling window for avg
+  const times = [];
 
   for (const pageNum of pagesToProcess) {
     if (batchCancelled) break;
@@ -1310,14 +1637,13 @@ async function startBatch() {
     progressText.textContent = `${done} / ${total}`;
     progressFill.style.width = `${(done / total) * 100}%`;
 
-    // ETA based on rolling avg of last 5 pages
     if (times.length > 0) {
       const window = times.slice(-5);
       const avg = window.reduce((a, b) => a + b, 0) / window.length;
       const remaining = (total - done) * avg / 1000;
-      progressEta.textContent = `· ещё ${formatEta(remaining)}`;
+      progressEta.textContent = t('eta_remaining', { s: formatEta(remaining) });
     } else {
-      progressEta.textContent = '· считаю время…';
+      progressEta.textContent = t('eta_calculating');
     }
 
     if (!selectedPdfPage) openPdfPage(pageNum);
@@ -1330,7 +1656,7 @@ async function startBatch() {
     }
 
     document.getElementById('loading').style.display = 'block';
-    document.getElementById('loading-msg').textContent = `Seite ${pageNum} / ${totalPages}…`;
+    document.getElementById('loading-msg').textContent = t('batch_page', { n: pageNum, t: totalPages });
     document.getElementById('translation').innerHTML = '';
 
     const t0 = Date.now();
@@ -1358,11 +1684,13 @@ async function startBatch() {
   }
 
   progressFill.style.width = '100%';
-  progressText.textContent = batchCancelled ? 'Отменено' : `${done} / ${total} готово`;
+  progressText.textContent = batchCancelled
+    ? t('batch_cancelled')
+    : t('batch_done', { d: done, t: total });
   if (times.length) {
     const total_ms = times.reduce((a, b) => a + b, 0);
     const avg = total_ms / times.length / 1000;
-    progressEta.textContent = `· по ${formatEta(avg)}/стр.`;
+    progressEta.textContent = t('eta_avg', { s: formatEta(avg) });
   } else {
     progressEta.textContent = '';
   }
@@ -1405,7 +1733,6 @@ function getSelectedPages() {
   return [];
 }
 
-// Toggle dependent inputs based on selection mode
 document.querySelectorAll('input[name="page-sel"]').forEach(r => {
   r.addEventListener('change', () => {
     const sel = document.querySelector('input[name="page-sel"]:checked')?.value;
@@ -1419,7 +1746,7 @@ document.querySelectorAll('input[name="page-sel"]').forEach(r => {
 
 async function callClaude(b64, mediaType) {
   const apiKey = getApiKey();
-  if (!apiKey) throw new Error('Введите Anthropic API Key');
+  if (!apiKey) throw new Error(t('error_apikey'));
 
   const mode   = getOutputMode();
   const lang   = getTranslateLang();
@@ -1452,7 +1779,7 @@ async function callClaude(b64, mediaType) {
 
   const raw = (data.content || []).map(b => b.text || '').join('');
   const m = raw.match(/\{[\s\S]*\}/);
-  if (!m) throw new Error('Нет JSON в ответе: ' + raw.slice(0, 300));
+  if (!m) throw new Error(t('error_no_json') + ': ' + raw.slice(0, 300));
   return JSON.parse(m[0]);
 }
 
@@ -1525,7 +1852,7 @@ function openPrintWindow(html) {
 
 function savePdf() {
   const mode = getOutputMode();
-  const lang = mode === 'modernize' ? 'Modernes Deutsch' : getTranslateLang();
+  const lang = mode === 'modernize' ? t('result_modernize') : getTranslateLang();
   const pages = Object.keys(pdfResults)
     .map(Number).sort((a, b) => a - b)
     .map(n => ({ num: n, result: pdfResults[n] }));
@@ -1535,7 +1862,7 @@ function savePdf() {
 
 function saveSinglePagePdf(pageNum, result) {
   const mode = getOutputMode();
-  const lang = mode === 'modernize' ? 'Modernes Deutsch' : getTranslateLang();
+  const lang = mode === 'modernize' ? t('result_modernize') : getTranslateLang();
   openPrintWindow(buildPdfHtml([{ num: pageNum, result }], lang));
 }
 
@@ -1568,26 +1895,24 @@ function render(r) {
 
 function showTranslateError(err) {
   const isNetwork = err instanceof TypeError && err.message === 'Failed to fetch';
-  const msg = isNetwork
-    ? 'Нет подключения к api.anthropic.com. Проверьте VPN / интернет.'
-    : err.message;
+  const msg = isNetwork ? t('error_network') : err.message;
   document.getElementById('translation').innerHTML =
-    `<div class="error"><strong>Ошибка:</strong><br>${msg}</div>`;
+    `<div class="error"><strong>Error:</strong><br>${msg}</div>`;
 }
 
 // ── Copy ──────────────────────────────────────────────────────────────────────
 
 document.getElementById('copy-btn').addEventListener('click', () => {
   if (!lastResult) return;
-  let t = lastResult.title ? lastResult.title + '\n\n' : '';
-  t += (lastResult.paragraphs || []).join('\n\n');
+  let txt = lastResult.title ? lastResult.title + '\n\n' : '';
+  txt += (lastResult.paragraphs || []).join('\n\n');
   if (lastResult.latin_fragments?.length) {
-    t += '\n\n— Lateinische Fragmente —';
+    txt += '\n\n— Lateinische Fragmente —';
     lastResult.latin_fragments.forEach(l => {
-      t += `\n\n${l.original}\n→ ${l.translation}\n(${l.source})`;
+      txt += `\n\n${l.original}\n→ ${l.translation}\n(${l.source})`;
     });
   }
-  navigator.clipboard.writeText(t);
+  navigator.clipboard.writeText(txt);
 });
 
 // ── Secondary section toggle ──────────────────────────────────────────────────
@@ -1607,9 +1932,9 @@ async function checkScreenshotServer() {
   const el = document.getElementById('screenshot-server-indicator');
   if (!el) return;
   if (screenshotServerAvailable) {
-    el.textContent = '● Скриншот-сервер подключён'; el.style.color = '#6abf69';
+    el.textContent = t('server_connected'); el.style.color = '#6abf69';
   } else {
-    el.textContent = '○ Скриншот-сервер не запущен'; el.style.color = ''; el.style.opacity = '.5';
+    el.textContent = t('server_disconnected'); el.style.color = ''; el.style.opacity = '.5';
   }
 }
 checkScreenshotServer();
@@ -1710,22 +2035,22 @@ async function loadFromUrl(url) {
   if (!url) return;
   const parsed = parseDlcUrl(url);
   if (!parsed) {
-    alert('Ожидается формат: dlc.mpg.de/fullscreen/{id}/{page}/ или dlc.mpg.de/image/{id}/{page}/');
+    alert(t('error_url_format'));
     return;
   }
   const { id, page, pageNum } = parsed;
 
   document.getElementById('columns').style.display = 'grid';
   const origEmpty = document.getElementById('orig-empty');
-  origEmpty.textContent = 'Загружаю…'; origEmpty.style.display = 'block';
+  origEmpty.textContent = t('loading_url'); origEmpty.style.display = 'block';
   document.getElementById('orig-img').style.display = 'none';
   document.getElementById('loading').style.display = 'block';
-  document.getElementById('loading-msg').textContent = 'Читаю готический шрифт…';
+  document.getElementById('loading-msg').textContent = t('loading_reading');
   document.getElementById('translation').innerHTML = '';
   document.getElementById('copy-btn').style.display = 'none';
 
   if (screenshotServerAvailable) {
-    origEmpty.textContent = 'Делаю скриншот…';
+    origEmpty.textContent = t('screenshot_taking');
     try {
       const r = await fetch(
         `${SCREENSHOT_SERVER}/screenshot?url=${encodeURIComponent(`https://dlc.mpg.de/image/${id}/${pageNum}/`)}`,
@@ -1747,8 +2072,7 @@ async function loadFromUrl(url) {
 
   window.open(`https://dlc.mpg.de/image/${id}/${pageNum}/`, '_blank');
   document.getElementById('orig-img').style.display = 'none';
-  origEmpty.innerHTML = `<div style="text-align:center;padding:2rem 1rem;font-size:0.82rem">
-    Оригинал открыт в соседней вкладке</div>`;
+  origEmpty.innerHTML = `<div style="text-align:center;padding:2rem 1rem;font-size:0.82rem">${t('opened_in_tab')}</div>`;
   origEmpty.style.display = 'block';
 
   const claudeUrl = `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!1500,2000/0/default.jpg`;
@@ -1805,7 +2129,7 @@ async function translateSingle(b64, mediaType) {
 
 async function translateUrlDirect(imageUrl) {
   const apiKey = getApiKey();
-  if (!apiKey) throw new Error('Введите Anthropic API Key');
+  if (!apiKey) throw new Error(t('error_apikey'));
   const mode   = getOutputMode();
   const lang   = getTranslateLang();
   const prompt = mode === 'modernize' ? PROMPT_MODERNIZE() : PROMPT_TRANSLATE(lang);
@@ -1835,7 +2159,7 @@ async function translateUrlDirect(imageUrl) {
   if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
   const raw = (data.content || []).map(b => b.text || '').join('');
   const m = raw.match(/\{[\s\S]*\}/);
-  if (!m) throw new Error('Нет JSON в ответе');
+  if (!m) throw new Error(t('error_no_json'));
   lastResult = JSON.parse(m[0]);
   render(lastResult);
   document.getElementById('copy-btn').style.display = 'block';
@@ -1846,13 +2170,13 @@ async function translateOcr(ocrText) {
   const loading = document.getElementById('loading');
   const trans   = document.getElementById('translation');
   loading.style.display = 'block';
-  document.getElementById('loading-msg').textContent = 'Обрабатываю OCR-текст…';
+  document.getElementById('loading-msg').textContent = t('loading_ocr');
   trans.innerHTML = '';
   document.getElementById('copy-btn').style.display = 'none';
 
   try {
     const apiKey = getApiKey();
-    if (!apiKey) throw new Error('Введите Anthropic API Key');
+    if (!apiKey) throw new Error(t('error_apikey'));
     const mode   = getOutputMode();
     const lang   = getTranslateLang();
     const prompt = mode === 'modernize' ? PROMPT_TEXT_MODERNIZE() : PROMPT_TEXT_TRANSLATE(lang);
@@ -1876,7 +2200,7 @@ async function translateOcr(ocrText) {
     if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
     const raw = (data.content || []).map(b => b.text || '').join('');
     const m = raw.match(/\{[\s\S]*\}/);
-    if (!m) throw new Error('Нет JSON в ответе');
+    if (!m) throw new Error(t('error_no_json'));
     lastResult = JSON.parse(m[0]);
     render(lastResult);
     document.getElementById('copy-btn').style.display = 'block';
@@ -1916,7 +2240,7 @@ function handleImageFile(file) {
     document.getElementById('orig-empty').style.display = 'none';
     document.getElementById('columns').style.display = 'grid';
     document.getElementById('loading').style.display = 'block';
-    document.getElementById('loading-msg').textContent = 'Читаю готический шрифт…';
+    document.getElementById('loading-msg').textContent = t('loading_reading');
     document.getElementById('translation').innerHTML = '';
     document.getElementById('copy-btn').style.display = 'none';
 
@@ -1924,6 +2248,10 @@ function handleImageFile(file) {
   };
   reader.readAsDataURL(file);
 }
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+applyLang();
 </script>
 </body>
 </html>
