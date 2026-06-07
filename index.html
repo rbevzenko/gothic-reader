@@ -440,8 +440,9 @@
     max-height: 680px;
   }
 
-  /* Copy button */
-  #copy-btn {
+  /* Copy / Save buttons in panel header */
+  .panel-actions { display: flex; gap: 0.4rem; align-items: center; }
+  #copy-btn, #page-save-btn {
     display: none;
     font-family: inherit;
     font-size: 0.7rem;
@@ -454,7 +455,7 @@
     color: var(--text-2);
     transition: all 0.12s;
   }
-  #copy-btn:hover { background: var(--bg); color: var(--text); }
+  #copy-btn:hover, #page-save-btn:hover { background: var(--bg); color: var(--text); }
 
   /* Image */
   #orig-img { max-width: 100%; border-radius: 4px; border: 1px solid var(--border); display: none; }
@@ -640,6 +641,52 @@
   #hint strong { color: var(--text-2); font-weight: 600; }
   #hint code { background: var(--border); padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.9em; }
 
+  /* Page selection row */
+  #page-sel-row {
+    display: none;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 0.5rem 1rem;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    font-size: 0.78rem;
+  }
+  #page-sel-row .mode-label { color: var(--text-2); font-weight: 500; white-space: nowrap; }
+  .page-sel-options { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+  .page-sel-options label {
+    display: flex; align-items: center; gap: 0.25rem;
+    cursor: pointer; color: var(--text); font-size: 0.78rem;
+    padding: 0.2rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    background: var(--surface);
+    transition: all 0.12s;
+  }
+  .page-sel-options label:has(input:checked) {
+    background: #eff6ff; border-color: var(--accent); color: var(--accent); font-weight: 500;
+  }
+  .page-sel-options label input { display: none; }
+  .page-num-input {
+    width: 54px; font-family: inherit; font-size: 0.78rem;
+    padding: 0.22rem 0.5rem; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); background: var(--surface-2);
+    color: var(--text); text-align: center;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .page-num-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,0.1); }
+  .page-num-input:disabled { opacity: 0.35; }
+  #page-list-input {
+    font-family: inherit; font-size: 0.78rem;
+    padding: 0.22rem 0.5rem; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); background: var(--surface-2);
+    color: var(--text); width: 160px;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  #page-list-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,0.1); }
+  #page-list-input:disabled { opacity: 0.35; }
+  .page-sep { color: var(--text-3); }
+
   @media (max-width: 700px) {
     #columns { grid-template-columns: 1fr; }
   }
@@ -703,6 +750,20 @@
       <button id="process-all-btn"><span>▶</span> Обработать все страницы</button>
     </div>
 
+    <!-- Page selection -->
+    <div id="page-sel-row">
+      <span class="mode-label">Страницы:</span>
+      <div class="page-sel-options">
+        <label><input type="radio" name="page-sel" value="all" checked> Все</label>
+        <label><input type="radio" name="page-sel" value="range"> Интервал</label>
+        <input id="page-from" type="number" min="1" placeholder="от" class="page-num-input" disabled>
+        <span class="page-sep">—</span>
+        <input id="page-to" type="number" min="1" placeholder="до" class="page-num-input" disabled>
+        <label><input type="radio" name="page-sel" value="list"> Список</label>
+        <input id="page-list-input" type="text" placeholder="1, 3, 5–8, 12" disabled>
+      </div>
+    </div>
+
     <!-- Progress -->
     <div id="batch-progress">
       <div id="progress-wrap"><div id="progress-fill"></div></div>
@@ -738,7 +799,10 @@
     <div class="panel">
       <div class="panel-header">
         <span class="panel-title" id="result-panel-title">Modernes Deutsch</span>
-        <button id="copy-btn">Kopieren</button>
+        <div class="panel-actions">
+          <button id="copy-btn">Kopieren</button>
+          <button id="page-save-btn">↓ PDF</button>
+        </div>
       </div>
       <div class="panel-body">
         <div class="loading" id="loading">
@@ -961,6 +1025,7 @@ async function loadPdf(file) {
   pageCountEl.textContent = 'Загружаю…';
   document.getElementById('pdf-pages-bar').style.display = 'block';
   document.getElementById('mode-bar').style.display = 'flex';
+  document.getElementById('page-sel-row').style.display = 'flex';
 
   const arrayBuffer = await file.arrayBuffer();
   pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -1034,6 +1099,7 @@ async function openPdfPage(pageNum) {
     lastResult = pdfResults[pageNum];
     render(lastResult);
     copyBtn.style.display = 'block';
+    document.getElementById('page-save-btn').style.display = 'block';
   } else {
     lastResult = null;
     trans.innerHTML = `<div class="empty">
@@ -1046,6 +1112,7 @@ async function openPdfPage(pageNum) {
       </button>
     </div>`;
     copyBtn.style.display = 'none';
+    document.getElementById('page-save-btn').style.display = 'none';
   }
 }
 
@@ -1084,6 +1151,7 @@ async function processSinglePage(pageNum) {
     lastResult = result;
     render(result);
     copyBtn.style.display = 'block';
+    document.getElementById('page-save-btn').style.display = 'block';
     checkSavePdfBtn();
   } catch (err) {
     showTranslateError(err);
@@ -1111,10 +1179,7 @@ async function startBatch() {
   processBtn.disabled = true;
 
   let done = 0;
-  const pagesToProcess = [];
-  for (let i = 1; i <= totalPages; i++) {
-    if (!pdfResults[i]) pagesToProcess.push(i);
-  }
+  const pagesToProcess = getSelectedPages().filter(i => !pdfResults[i]);
   const total = pagesToProcess.length;
 
   for (const pageNum of pagesToProcess) {
@@ -1173,6 +1238,46 @@ function checkSavePdfBtn() {
   document.getElementById('save-pdf-btn').style.display = count > 0 ? 'block' : 'none';
 }
 
+// ── Page selection ────────────────────────────────────────────────────────────
+
+function getSelectedPages() {
+  const sel = document.querySelector('input[name="page-sel"]:checked')?.value || 'all';
+  if (sel === 'all') return Array.from({ length: totalPages }, (_, i) => i + 1);
+  if (sel === 'range') {
+    const from = Math.max(1, parseInt(document.getElementById('page-from').value) || 1);
+    const to   = Math.min(totalPages, parseInt(document.getElementById('page-to').value) || totalPages);
+    const pages = [];
+    for (let i = from; i <= to; i++) pages.push(i);
+    return pages;
+  }
+  if (sel === 'list') {
+    const text = document.getElementById('page-list-input').value;
+    const pages = new Set();
+    text.split(/[,;\s]+/).forEach(part => {
+      const range = part.match(/^(\d+)[–\-](\d+)$/);
+      if (range) {
+        for (let i = parseInt(range[1]); i <= parseInt(range[2]); i++)
+          if (i >= 1 && i <= totalPages) pages.add(i);
+      } else {
+        const n = parseInt(part);
+        if (!isNaN(n) && n >= 1 && n <= totalPages) pages.add(n);
+      }
+    });
+    return Array.from(pages).sort((a, b) => a - b);
+  }
+  return [];
+}
+
+// Toggle dependent inputs based on selection mode
+document.querySelectorAll('input[name="page-sel"]').forEach(r => {
+  r.addEventListener('change', () => {
+    const sel = document.querySelector('input[name="page-sel"]:checked')?.value;
+    document.getElementById('page-from').disabled = sel !== 'range';
+    document.getElementById('page-to').disabled   = sel !== 'range';
+    document.getElementById('page-list-input').disabled = sel !== 'list';
+  });
+});
+
 // ── Claude API call ───────────────────────────────────────────────────────────
 
 async function callClaude(b64, mediaType) {
@@ -1217,64 +1322,46 @@ async function callClaude(b64, mediaType) {
 // ── Save as PDF (browser print) ───────────────────────────────────────────────
 
 document.getElementById('save-pdf-btn').addEventListener('click', savePdf);
+document.getElementById('page-save-btn').addEventListener('click', () => {
+  if (lastResult && selectedPdfPage) saveSinglePagePdf(selectedPdfPage, lastResult);
+  else if (lastResult) saveSinglePagePdf(null, lastResult);
+});
 
-function savePdf() {
-  const mode = getOutputMode();
-  const lang = mode === 'modernize' ? 'Modernes Deutsch' : getTranslateLang();
-  const pages = Object.keys(pdfResults)
-    .map(Number).sort((a, b) => a - b)
-    .map(n => ({ num: n, result: pdfResults[n] }));
-
-  if (!pages.length) return;
-
-  const html = `<!DOCTYPE html>
+function buildPdfHtml(pages, lang) {
+  return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Gothic Reader — ${lang}</title>
+<title>Gothic Reader — ${escHtml(lang)}</title>
 <style>
-  @page { margin: 2.5cm 2.5cm 2.5cm 2.5cm; size: A4; }
+  @page { margin: 2.5cm; size: A4; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: Georgia, 'Times New Roman', serif;
-    font-size: 11pt;
-    line-height: 1.8;
-    color: #1a1209;
-  }
+  body { font-family: Georgia, 'Times New Roman', serif; font-size: 11pt; line-height: 1.8; color: #111; }
   .page-block { page-break-after: always; padding-bottom: 1cm; }
   .page-block:last-child { page-break-after: auto; }
   .page-meta {
-    font-size: 8pt;
-    color: #999;
-    border-bottom: 1px solid #ddd;
-    padding-bottom: 0.3cm;
-    margin-bottom: 0.6cm;
-    display: flex;
-    justify-content: space-between;
+    font-size: 8pt; color: #999; border-bottom: 1px solid #ddd;
+    padding-bottom: 0.3cm; margin-bottom: 0.6cm;
+    display: flex; justify-content: space-between;
   }
-  h2 { font-size: 13pt; color: #5a0000; font-style: italic; text-align: center; margin-bottom: 0.5cm; font-weight: normal; }
+  h2 { font-size: 13pt; color: #1a1a2e; text-align: center; margin-bottom: 0.5cm; font-weight: 600; }
   p { margin-bottom: 0.4cm; text-align: justify; }
   .latin-block {
-    border-left: 3px solid #b8860b;
-    padding: 0.3cm 0.5cm;
-    margin: 0.3cm 0;
-    background: #fffbf0;
-    font-size: 10pt;
+    border-left: 3px solid #6b7280; padding: 0.3cm 0.5cm;
+    margin: 0.3cm 0; background: #f9fafb; font-size: 10pt;
   }
-  .latin-block .orig { font-style: italic; color: #8b1a1a; }
-  .latin-block .src  { font-size: 8.5pt; color: #8a6040; font-style: italic; margin-top: 0.15cm; }
-  .section-label { font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.1em; color: #b8860b; margin: 0.5cm 0 0.2cm; }
-  @media print {
-    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  }
+  .latin-block .orig { font-style: italic; color: #374151; }
+  .latin-block .src  { font-size: 8.5pt; color: #9ca3af; font-style: italic; margin-top: 0.15cm; }
+  .section-label { font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.1em; color: #6b7280; margin: 0.5cm 0 0.2cm; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
 </style>
 </head>
 <body>
 ${pages.map(({ num, result: r }) => `
 <div class="page-block">
   <div class="page-meta">
-    <span>Gothic Reader · ${lang}</span>
-    <span>Seite ${num}</span>
+    <span>Gothic Reader · ${escHtml(lang)}</span>
+    ${num != null ? `<span>Seite ${num}</span>` : ''}
   </div>
   ${r.title ? `<h2>${escHtml(r.title)}</h2>` : ''}
   ${(r.paragraphs || []).map(p => `<p>${escHtml(p)}</p>`).join('\n  ')}
@@ -1289,14 +1376,30 @@ ${pages.map(({ num, result: r }) => `
 </div>`).join('\n')}
 </body>
 </html>`;
+}
 
+function openPrintWindow(html) {
   const win = window.open('', '_blank');
   win.document.write(html);
   win.document.close();
-  // Wait for fonts/layout, then print
   win.addEventListener('load', () => { setTimeout(() => win.print(), 400); });
-  // Fallback if load already fired
   setTimeout(() => { try { win.print(); } catch(_) {} }, 800);
+}
+
+function savePdf() {
+  const mode = getOutputMode();
+  const lang = mode === 'modernize' ? 'Modernes Deutsch' : getTranslateLang();
+  const pages = Object.keys(pdfResults)
+    .map(Number).sort((a, b) => a - b)
+    .map(n => ({ num: n, result: pdfResults[n] }));
+  if (!pages.length) return;
+  openPrintWindow(buildPdfHtml(pages, lang));
+}
+
+function saveSinglePagePdf(pageNum, result) {
+  const mode = getOutputMode();
+  const lang = mode === 'modernize' ? 'Modernes Deutsch' : getTranslateLang();
+  openPrintWindow(buildPdfHtml([{ num: pageNum, result }], lang));
 }
 
 function escHtml(s) {
@@ -1555,6 +1658,7 @@ async function translateSingle(b64, mediaType) {
     lastResult = result;
     render(result);
     document.getElementById('copy-btn').style.display = 'block';
+    document.getElementById('page-save-btn').style.display = 'block';
   } catch (err) {
     showTranslateError(err);
   } finally {
@@ -1598,6 +1702,7 @@ async function translateUrlDirect(imageUrl) {
   lastResult = JSON.parse(m[0]);
   render(lastResult);
   document.getElementById('copy-btn').style.display = 'block';
+  document.getElementById('page-save-btn').style.display = 'block';
 }
 
 async function translateOcr(ocrText) {
@@ -1638,6 +1743,7 @@ async function translateOcr(ocrText) {
     lastResult = JSON.parse(m[0]);
     render(lastResult);
     document.getElementById('copy-btn').style.display = 'block';
+    document.getElementById('page-save-btn').style.display = 'block';
   } catch (err) {
     showTranslateError(err);
   } finally {
