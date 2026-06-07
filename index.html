@@ -275,8 +275,13 @@
     font-size: 0.72rem;
     color: var(--text-2);
     white-space: nowrap;
-    min-width: 80px;
-    text-align: right;
+    min-width: 60px;
+  }
+  #progress-eta {
+    font-size: 0.72rem;
+    color: var(--text-3);
+    white-space: nowrap;
+    min-width: 100px;
   }
   #cancel-btn {
     font-family: inherit;
@@ -794,6 +799,7 @@
     <div id="batch-progress">
       <div id="progress-wrap"><div id="progress-fill"></div></div>
       <span id="progress-text">0 / 0</span>
+      <span id="progress-eta"></span>
       <button id="cancel-btn">Отмена</button>
     </div>
 
@@ -1233,19 +1239,36 @@ document.getElementById('process-all-btn').addEventListener('click', () => {
 });
 document.getElementById('cancel-btn').addEventListener('click', () => { batchCancelled = true; });
 
+function formatEta(seconds) {
+  if (seconds < 60)  return `~${Math.round(seconds)} сек.`;
+  if (seconds < 3600) {
+    const m = Math.floor(seconds / 60);
+    const s = Math.round(seconds % 60);
+    return s > 0 ? `~${m} мин. ${s} сек.` : `~${m} мин.`;
+  }
+  const h = Math.floor(seconds / 3600);
+  const m = Math.round((seconds % 3600) / 60);
+  return m > 0 ? `~${h} ч. ${m} мин.` : `~${h} ч.`;
+}
+
 async function startBatch() {
   batchCancelled = false;
   const progressBar  = document.getElementById('batch-progress');
   const progressFill = document.getElementById('progress-fill');
   const progressText = document.getElementById('progress-text');
+  const progressEta  = document.getElementById('progress-eta');
   const processBtn   = document.getElementById('process-all-btn');
 
   progressBar.style.display = 'flex';
+  progressEta.textContent = '';
   processBtn.disabled = true;
 
   let done = 0;
   const pagesToProcess = getSelectedPages().filter(i => !pdfResults[i]);
   const total = pagesToProcess.length;
+  if (total === 0) { processBtn.disabled = false; return; }
+
+  const times = []; // ms per page, rolling window for avg
 
   for (const pageNum of pagesToProcess) {
     if (batchCancelled) break;
@@ -1253,27 +1276,34 @@ async function startBatch() {
     progressText.textContent = `${done} / ${total}`;
     progressFill.style.width = `${(done / total) * 100}%`;
 
-    // Show page being processed
+    // ETA based on rolling avg of last 5 pages
+    if (times.length > 0) {
+      const window = times.slice(-5);
+      const avg = window.reduce((a, b) => a + b, 0) / window.length;
+      const remaining = (total - done) * avg / 1000;
+      progressEta.textContent = `· ещё ${formatEta(remaining)}`;
+    } else {
+      progressEta.textContent = '· считаю время…';
+    }
+
     if (!selectedPdfPage) openPdfPage(pageNum);
-    else {
-      // Update original image silently
-      const origImg = document.getElementById('orig-img');
-      if (selectedPdfPage === pageNum) {
-        const { dataUrl } = await getPdfPageImage(pageNum);
-        origImg.src = dataUrl;
-        origImg.style.display = 'block';
-        document.getElementById('orig-empty').style.display = 'none';
-        document.getElementById('columns').style.display = 'grid';
-      }
+    else if (selectedPdfPage === pageNum) {
+      const { dataUrl } = await getPdfPageImage(pageNum);
+      document.getElementById('orig-img').src = dataUrl;
+      document.getElementById('orig-img').style.display = 'block';
+      document.getElementById('orig-empty').style.display = 'none';
+      document.getElementById('columns').style.display = 'grid';
     }
 
     document.getElementById('loading').style.display = 'block';
     document.getElementById('loading-msg').textContent = `Seite ${pageNum} / ${totalPages}…`;
     document.getElementById('translation').innerHTML = '';
 
+    const t0 = Date.now();
     try {
       const { b64 } = await getPdfPageImage(pageNum);
       const result = await callClaude(b64, 'image/png');
+      times.push(Date.now() - t0);
       pdfResults[pageNum] = result;
       pdfThumbEls[pageNum]?.classList.add('done');
       if (selectedPdfPage === pageNum || !selectedPdfPage) {
@@ -1281,10 +1311,11 @@ async function startBatch() {
         lastResult = result;
         render(result);
         document.getElementById('copy-btn').style.display = 'block';
+        document.getElementById('page-save-btn').style.display = 'block';
         updateNavButtons();
       }
     } catch (err) {
-      // Mark page with error, continue
+      times.push(Date.now() - t0);
       console.error(`Page ${pageNum}:`, err);
     }
 
@@ -1294,6 +1325,13 @@ async function startBatch() {
 
   progressFill.style.width = '100%';
   progressText.textContent = batchCancelled ? 'Отменено' : `${done} / ${total} готово`;
+  if (times.length) {
+    const total_ms = times.reduce((a, b) => a + b, 0);
+    const avg = total_ms / times.length / 1000;
+    progressEta.textContent = `· по ${formatEta(avg)}/стр.`;
+  } else {
+    progressEta.textContent = '';
+  }
   processBtn.disabled = false;
   checkSavePdfBtn();
 }
