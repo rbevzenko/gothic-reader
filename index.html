@@ -1808,6 +1808,7 @@ async function processSinglePage(pageNum) {
     render(result);
     copyBtn.style.display = 'block';
     document.getElementById('page-save-btn').style.display = 'block';
+    document.getElementById('reprocess-btn').style.display = 'block';
     checkSavePdfBtn();
   } catch (err) {
     showTranslateError(err);
