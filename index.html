@@ -742,6 +742,25 @@
     <button class="lang-btn" data-lang="ru" onclick="setLang('ru')">RU</button>
     <button class="lang-btn" data-lang="fr" onclick="setLang('fr')">FR</button>
   </div>
+  <!-- Credits badge (shown only in hosted mode) -->
+  <div id="credits-bar" style="display:none; align-items:center; gap:0.5rem; margin-left:auto;">
+    <span id="credits-badge" style="font-size:0.75rem; color:var(--text-2); font-weight:500;"></span>
+    <button id="buy-credits-btn" onclick="showBuyModal()" style="font-family:inherit;font-size:0.75rem;font-weight:600;padding:0.25rem 0.75rem;background:var(--accent);border:none;border-radius:var(--radius-sm);color:#fff;cursor:pointer;">Buy pages</button>
+  </div>
+</div>
+
+<!-- Buy credits modal -->
+<div id="buy-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border-radius:var(--radius);padding:1.5rem;max-width:380px;width:90%;box-shadow:var(--shadow-md);">
+    <h2 style="font-size:1rem;font-weight:600;margin-bottom:0.25rem;">Buy Pages</h2>
+    <p style="font-size:0.8rem;color:var(--text-2);margin-bottom:1.25rem;">Credits never expire. Each page = 1 credit.</p>
+    <div style="display:flex;flex-direction:column;gap:0.6rem;margin-bottom:1.25rem;">
+      <button class="pkg-btn" onclick="openCheckout('pages_100')"  style="text-align:left;padding:0.7rem 1rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2);cursor:pointer;font-family:inherit;font-size:0.85rem;"><strong>100 pages</strong> — €3.90 <span style="font-size:0.75rem;color:var(--text-3)">(€0.039 / page)</span></button>
+      <button class="pkg-btn" onclick="openCheckout('pages_500')"  style="text-align:left;padding:0.7rem 1rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2);cursor:pointer;font-family:inherit;font-size:0.85rem;"><strong>500 pages</strong> — €14.90 <span style="font-size:0.75rem;color:var(--text-3)">(€0.030 / page)</span></button>
+      <button class="pkg-btn" onclick="openCheckout('pages_1000')" style="text-align:left;padding:0.7rem 1rem;border:2px solid var(--accent);border-radius:var(--radius-sm);background:#eff6ff;cursor:pointer;font-family:inherit;font-size:0.85rem;"><strong>1000 pages</strong> — €24.90 <span style="font-size:0.75rem;color:var(--text-3)">(€0.025 / page)</span> ⭐ Best value</button>
+    </div>
+    <button onclick="hideBuyModal()" style="font-family:inherit;font-size:0.8rem;padding:0.4rem 1rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:none;cursor:pointer;color:var(--text-2);">Cancel</button>
+  </div>
 </div>
 
 <div id="app">
@@ -1312,6 +1331,53 @@ let totalPages = 0;
 const SCREENSHOT_SERVER = 'http://localhost:3001';
 let screenshotServerAvailable = false;
 
+// ── Hosted mode (paid credits) ────────────────────────────────────────────────
+// Set WORKER_URL to your Cloudflare Worker URL to enable the hosted/paid mode.
+// Leave empty to use only the bring-your-own-key mode.
+const WORKER_URL = '';  // e.g. 'https://gothic-reader.your-account.workers.dev'
+
+const CREDITS_KEY = 'gothic_reader_uid';
+
+function getOrCreateUid() {
+  let uid = localStorage.getItem(CREDITS_KEY);
+  if (!uid) {
+    uid = crypto.randomUUID();
+    localStorage.setItem(CREDITS_KEY, uid);
+  }
+  return uid;
+}
+
+function isHostedMode() {
+  return !!WORKER_URL && !getApiKey();
+}
+
+async function fetchCredits() {
+  if (!WORKER_URL) return null;
+  try {
+    const r = await fetch(`${WORKER_URL}/api/credits?uid=${getOrCreateUid()}`);
+    const d = await r.json();
+    return d.credits ?? 0;
+  } catch { return null; }
+}
+
+async function openCheckout(packageId) {
+  if (!WORKER_URL) return;
+  try {
+    const r = await fetch(`${WORKER_URL}/api/checkout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        uid: getOrCreateUid(),
+        package_id: packageId,
+        success_url: location.href + '?payment=ok',
+        cancel_url:  location.href + '?payment=cancel',
+      }),
+    });
+    const d = await r.json();
+    if (d.url) location.href = d.url;
+  } catch (e) { alert('Checkout error: ' + e.message); }
+}
+
 // ── API key ───────────────────────────────────────────────────────────────────
 
 const apikeyInput = document.getElementById('apikey-input');
@@ -1354,6 +1420,45 @@ apikeyInput.addEventListener('change', () => {
 document.getElementById('apikey-change').addEventListener('click', doChangeApiKey);
 
 updateApikeyUI();
+
+// ── Hosted mode UI ────────────────────────────────────────────────────────────
+
+function showBuyModal() {
+  const m = document.getElementById('buy-modal');
+  m.style.display = 'flex';
+}
+function hideBuyModal() {
+  document.getElementById('buy-modal').style.display = 'none';
+}
+document.getElementById('buy-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) hideBuyModal();
+});
+
+async function initHostedMode() {
+  if (!WORKER_URL) return;
+  const bar = document.getElementById('credits-bar');
+  bar.style.display = 'flex';
+
+  // Hide API key bar when using hosted mode (no key stored)
+  if (!localStorage.getItem(STORAGE_KEY)) {
+    document.getElementById('apikey-bar').style.display = 'none';
+  }
+
+  const credits = await fetchCredits();
+  updateCreditsBadge(credits ?? 0);
+
+  // Handle post-payment redirect
+  const params = new URLSearchParams(location.search);
+  if (params.get('payment') === 'ok') {
+    history.replaceState(null, '', location.pathname);
+    setTimeout(async () => {
+      const fresh = await fetchCredits();
+      if (fresh !== null) updateCreditsBadge(fresh);
+    }, 2000);
+  }
+}
+
+initHostedMode();
 
 // ── PDF.js setup ──────────────────────────────────────────────────────────────
 
@@ -1745,42 +1850,65 @@ document.querySelectorAll('input[name="page-sel"]').forEach(r => {
 // ── Claude API call ───────────────────────────────────────────────────────────
 
 async function callClaude(b64, mediaType) {
-  const apiKey = getApiKey();
-  if (!apiKey) throw new Error(t('error_apikey'));
-
   const mode   = getOutputMode();
   const lang   = getTranslateLang();
   const prompt = mode === 'modernize' ? PROMPT_MODERNIZE() : PROMPT_TRANSLATE(lang);
+  const body   = {
+    model: getModel(),
+    max_tokens: 4000,
+    system: prompt,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
+        { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' }
+      ]
+    }]
+  };
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: getModel(),
-      max_tokens: 4000,
-      system: prompt,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
-          { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' }
-        ]
-      }]
-    })
-  });
+  let res;
+  if (isHostedMode()) {
+    // Route through paid worker (no API key needed)
+    res = await fetch(`${WORKER_URL}/api/claude`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Id': getOrCreateUid() },
+      body: JSON.stringify(body),
+    });
+  } else {
+    const apiKey = getApiKey();
+    if (!apiKey) throw new Error(t('error_apikey'));
+    res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify(body),
+    });
+  }
 
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+  if (!res.ok) {
+    if (data.error === 'no_credits') throw new Error(t('error_no_credits') || 'No credits remaining. Please purchase more pages.');
+    throw new Error(data.error?.message || JSON.stringify(data));
+  }
+
+  // Update credits badge if running in hosted mode
+  if (data.credits_remaining !== undefined) updateCreditsBadge(data.credits_remaining);
 
   const raw = (data.content || []).map(b => b.text || '').join('');
   const m = raw.match(/\{[\s\S]*\}/);
   if (!m) throw new Error(t('error_no_json') + ': ' + raw.slice(0, 300));
   return JSON.parse(m[0]);
+}
+
+function updateCreditsBadge(n) {
+  let el = document.getElementById('credits-badge');
+  if (!el) return;
+  el.textContent = n + ' pages left';
+  el.style.color = n < 10 ? 'var(--red)' : 'var(--text-2)';
 }
 
 // ── Save as PDF (browser print) ───────────────────────────────────────────────
