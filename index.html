@@ -745,6 +745,7 @@
   <!-- Credits badge (shown only in hosted mode) -->
   <div id="credits-bar" style="display:none; align-items:center; gap:0.5rem; margin-left:auto;">
     <span id="credits-badge" style="font-size:0.75rem; color:var(--text-2); font-weight:500;"></span>
+    <a href="/account" style="font-family:inherit;font-size:0.75rem;font-weight:500;padding:0.25rem 0.7rem;background:none;border:1px solid var(--border-2);border-radius:var(--radius-sm);color:var(--text-2);cursor:pointer;text-decoration:none;">Account</a>
     <button id="buy-credits-btn" onclick="showBuyModal()" style="font-family:inherit;font-size:0.75rem;font-weight:600;padding:0.25rem 0.75rem;background:var(--accent);border:none;border-radius:var(--radius-sm);color:#fff;cursor:pointer;">Buy pages</button>
   </div>
 </div>
@@ -1335,6 +1336,11 @@ let screenshotServerAvailable = false;
 const WORKER_URL = 'https://fraktur.app';
 
 const CREDITS_KEY = 'gothic_reader_uid';
+const TOKEN_KEY   = 'fraktur_token';
+
+function getSessionToken() {
+  return localStorage.getItem(TOKEN_KEY);
+}
 
 function getOrCreateUid() {
   let uid = localStorage.getItem(CREDITS_KEY);
@@ -1349,12 +1355,24 @@ function isHostedMode() {
   return !!WORKER_URL && !getApiKey();
 }
 
+function hostedAuthHeaders() {
+  const token = getSessionToken();
+  return token
+    ? { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }
+    : { 'Content-Type': 'application/json', 'X-User-Id': getOrCreateUid() };
+}
+
 async function fetchCredits() {
   if (!WORKER_URL) return null;
   try {
-    const r = await fetch(`${WORKER_URL}/api/credits?uid=${getOrCreateUid()}`);
+    const token = getSessionToken();
+    const url   = token
+      ? `${WORKER_URL}/api/auth/me`
+      : `${WORKER_URL}/api/credits?uid=${getOrCreateUid()}`;
+    const headers = token ? { 'Authorization': 'Bearer ' + token } : {};
+    const r = await fetch(url, { headers });
     const d = await r.json();
-    return d.credits ?? 0;
+    return d.balance ?? d.credits ?? 0;
   } catch { return null; }
 }
 
@@ -1363,11 +1381,11 @@ async function openCheckout(packageId) {
   try {
     const r = await fetch(`${WORKER_URL}/api/checkout`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: hostedAuthHeaders(),
       body: JSON.stringify({
         uid: getOrCreateUid(),
         package_id: packageId,
-        success_url: location.href + '?payment=ok',
+        success_url: location.origin + '/account?payment=ok',
         cancel_url:  location.href + '?payment=cancel',
       }),
     });
@@ -1871,7 +1889,7 @@ async function callClaude(b64, mediaType) {
     // Route through paid worker (no API key needed)
     res = await fetch(`${WORKER_URL}/api/claude`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-User-Id': getOrCreateUid() },
+      headers: hostedAuthHeaders(),
       body: JSON.stringify(body),
     });
   } else {

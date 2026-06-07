@@ -5,17 +5,23 @@
  * Secrets: .env (see .env.example)
  *
  * Endpoints:
- *   POST /api/claude          — proxy Claude call, deduct 1 credit
- *   GET  /api/credits?uid=…   — return credit balance
- *   POST /api/checkout        — create Stripe Checkout session
- *   POST /api/stripe-webhook  — Stripe webhook → top-up credits
- *   GET  /admin               — admin panel (HTTP Basic Auth)
- *   GET  /admin/api/*         — admin API
- *   GET  /*                   — serve index.html
+ *   POST /api/auth/register    — register with email + password
+ *   POST /api/auth/login       — login, returns session token
+ *   POST /api/auth/logout      — invalidate session
+ *   GET  /api/auth/me          — current user info + balance + history
+ *   POST /api/claude           — proxy Claude call, deduct 1 credit
+ *   GET  /api/credits?uid=…    — return credit balance (legacy)
+ *   POST /api/checkout         — create Stripe Checkout session
+ *   POST /api/stripe-webhook   — Stripe webhook → top-up credits
+ *   GET  /admin                — admin panel (HTTP Basic Auth)
+ *   GET  /admin/api/*          — admin API
+ *   GET  /account              — user account page
+ *   GET  /*                    — serve index.html
  */
 
 import express from 'express';
 import Database from 'better-sqlite3';
+import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -50,6 +56,21 @@ db.exec(`
     created_at   INTEGER NOT NULL DEFAULT (unixepoch())
   );
 
+  CREATE TABLE IF NOT EXISTS users (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    email        TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT   NOT NULL,
+    uid          TEXT    NOT NULL UNIQUE,
+    created_at   INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+
+  CREATE TABLE IF NOT EXISTS sessions (
+    token      TEXT    PRIMARY KEY,
+    uid        TEXT    NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    expires_at INTEGER NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS requests (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     uid           TEXT    NOT NULL,
@@ -79,9 +100,10 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_requests_ts  ON requests(created_at);
   CREATE INDEX IF NOT EXISTS idx_payments_uid ON payments(uid);
   CREATE INDEX IF NOT EXISTS idx_payments_ts  ON payments(created_at);
+  CREATE INDEX IF NOT EXISTS idx_sessions_uid ON sessions(uid);
 `);
 
-// Prepared statements
+// Prepared statements — credits
 const stmtGetCredits    = db.prepare(`SELECT balance, total_bought, created_at FROM credits WHERE uid = ?`);
 const stmtUpsertCredits = db.prepare(`
   INSERT INTO credits (uid, balance, total_bought) VALUES (?, ?, ?)
@@ -96,6 +118,18 @@ const stmtLogPayment = db.prepare(`
 const stmtGetSetting = db.prepare(`SELECT value FROM settings WHERE key = ?`);
 const stmtSetSetting = db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`);
 
+// Prepared statements — auth
+const stmtCreateUser   = db.prepare(`INSERT INTO users (email, password_hash, uid) VALUES (?, ?, ?)`);
+const stmtGetUserEmail = db.prepare(`SELECT * FROM users WHERE email = ?`);
+const stmtGetUserUid   = db.prepare(`SELECT * FROM users WHERE uid = ?`);
+const stmtCreateSession = db.prepare(`INSERT INTO sessions (token, uid, expires_at) VALUES (?, ?, ?)`);
+const stmtGetSession    = db.prepare(`SELECT * FROM sessions WHERE token = ? AND expires_at > unixepoch()`);
+const stmtDeleteSession = db.prepare(`DELETE FROM sessions WHERE token = ?`);
+const stmtCleanSessions = db.prepare(`DELETE FROM sessions WHERE expires_at <= unixepoch()`);
+
+// Clean expired sessions on startup
+stmtCleanSessions.run();
+
 function fetchBalance(uid) {
   return stmtGetCredits.get(uid)?.balance ?? 0;
 }
@@ -108,6 +142,22 @@ function saveBalance(uid, balance, totalBought) {
 }
 function getSetting(key, def = null) {
   return stmtGetSetting.get(key)?.value ?? def;
+}
+
+function createSessionToken(uid) {
+  const token     = crypto.randomBytes(32).toString('hex');
+  const expiresAt = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30; // 30 days
+  stmtCreateSession.run(token, uid, expiresAt);
+  return token;
+}
+
+function getUidFromRequest(req) {
+  const auth = req.headers.authorization || '';
+  if (auth.startsWith('Bearer ')) {
+    const session = stmtGetSession.get(auth.slice(7));
+    if (session) return session.uid;
+  }
+  return req.headers['x-user-id'] || null;
 }
 
 // ── Package config (can be overridden via admin settings) ────────────────────
@@ -156,6 +206,12 @@ function adminAuth(req, res, next) {
 
 // ── Public API routes ─────────────────────────────────────────────────────────
 
+app.post('/api/auth/register', handleRegister);
+app.post('/api/auth/login',    handleLogin);
+app.post('/api/auth/logout',          handleLogout);
+app.get('/api/auth/me',              handleMe);
+app.post('/api/auth/change-password', handleChangePassword);
+
 app.post('/api/claude',   handleClaude);
 app.get('/api/credits',   handleCredits);
 app.post('/api/checkout', handleCheckout);
@@ -171,9 +227,100 @@ app.post('/admin/api/credits', adminAuth, adminSetCredits);
 app.get('/admin/api/settings', adminAuth, adminGetSettings);
 app.post('/admin/api/settings',adminAuth, adminSaveSettings);
 
+// Account page
+app.get('/account', (req, res) => res.sendFile(path.join(__dirname, 'account.html')));
+
 // Frontend
 app.use(express.static(__dirname));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+
+// ── Auth handlers ─────────────────────────────────────────────────────────────
+
+async function handleRegister(req, res) {
+  const { email, password, uid: anonUid } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+
+  const existing = stmtGetUserEmail.get(email);
+  if (existing) return res.status(409).json({ error: 'Email already registered' });
+
+  // Use existing anonymous uid (preserves credits) or create new one
+  const uid = anonUid || crypto.randomUUID();
+  const hash = await bcrypt.hash(password, 10);
+
+  try {
+    stmtCreateUser.run(email, hash, uid);
+    // Ensure credits row exists
+    if (!stmtGetCredits.get(uid)) stmtUpsertCredits.run(uid, 0, 0);
+    const token = createSessionToken(uid);
+    res.json({ token, uid, email });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function handleLogin(req, res) {
+  const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+
+  const user = stmtGetUserEmail.get(email);
+  if (!user) return res.status(401).json({ error: 'Invalid email or password' });
+
+  const ok = await bcrypt.compare(password, user.password_hash);
+  if (!ok) return res.status(401).json({ error: 'Invalid email or password' });
+
+  const token = createSessionToken(user.uid);
+  res.json({ token, uid: user.uid, email: user.email });
+}
+
+function handleLogout(req, res) {
+  const auth = req.headers.authorization || '';
+  if (auth.startsWith('Bearer ')) stmtDeleteSession.run(auth.slice(7));
+  res.json({ ok: true });
+}
+
+function handleMe(req, res) {
+  const uid = getUidFromRequest(req);
+  if (!uid) return res.status(401).json({ error: 'Not authenticated' });
+
+  const credits = fetchUser(uid);
+  const user    = stmtGetUserUid.get(uid);
+
+  const recentRequests = db.prepare(`
+    SELECT model, input_tokens, output_tokens, cost_usd, created_at
+    FROM requests WHERE uid = ? ORDER BY created_at DESC LIMIT 20
+  `).all(uid);
+
+  const recentPayments = db.prepare(`
+    SELECT package_id, credits, amount_eur, created_at
+    FROM payments WHERE uid = ? ORDER BY created_at DESC LIMIT 10
+  `).all(uid);
+
+  const stats = db.prepare(`
+    SELECT COUNT(*) as pages, COALESCE(SUM(cost_usd),0) as cost_usd
+    FROM requests WHERE uid = ?
+  `).get(uid);
+
+  res.json({
+    uid,
+    email:    user?.email || null,
+    balance:  credits.balance,
+    total_bought: credits.total_bought,
+    pages_used:   stats.pages,
+    recent_requests: recentRequests,
+    recent_payments: recentPayments,
+  });
+}
+
+async function handleChangePassword(req, res) {
+  const uid = getUidFromRequest(req);
+  if (!uid) return res.status(401).json({ error: 'Not authenticated' });
+  const { password } = req.body;
+  if (!password || password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  const hash = await bcrypt.hash(password, 10);
+  db.prepare(`UPDATE users SET password_hash = ? WHERE uid = ?`).run(hash, uid);
+  res.json({ ok: true });
+}
 
 // ── Public handlers ───────────────────────────────────────────────────────────
 
@@ -182,7 +329,7 @@ async function handleClaude(req, res) {
     return res.status(503).json({ error: 'maintenance' });
   }
 
-  const uid = req.headers['x-user-id'];
+  const uid = getUidFromRequest(req);
   if (!uid) return res.status(401).json({ error: 'Missing X-User-Id' });
 
   const credits = fetchBalance(uid);
