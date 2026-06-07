@@ -446,7 +446,7 @@
 
   /* Copy / Save buttons in panel header */
   .panel-actions { display: flex; gap: 0.4rem; align-items: center; }
-  #copy-btn, #page-save-btn {
+  #copy-btn, #page-save-btn, #reprocess-btn {
     display: none;
     font-family: inherit;
     font-size: 0.7rem;
@@ -459,7 +459,7 @@
     color: var(--text-2);
     transition: all 0.12s;
   }
-  #copy-btn:hover, #page-save-btn:hover { background: var(--bg); color: var(--text); }
+  #copy-btn:hover, #page-save-btn:hover, #reprocess-btn:hover { background: var(--bg); color: var(--text); }
 
   /* Image */
   #orig-img { max-width: 100%; border-radius: 4px; border: 1px solid var(--border); display: none; }
@@ -876,7 +876,7 @@
       <div class="panel-header">
         <span class="panel-title" id="result-panel-title">Modern German</span>
         <div class="panel-actions">
-          <button id="reprocess-btn" style="display:none" data-i18n="reprocess_btn">↺ Re-process</button>
+          <button id="reprocess-btn" data-i18n="reprocess_btn">↺ Re-process</button>
           <button id="copy-btn" data-i18n="copy_btn">Copy</button>
           <button id="page-save-btn">↓ PDF</button>
         </div>
@@ -1897,7 +1897,7 @@ async function startBatch() {
         selectedPdfPage = pageNum;
         lastResult = result;
         render(result);
-        document.getElementById('copy-btn').style.display = 'block';
+        document.getElementById('copy-btn').style.display = 'block'; document.getElementById('reprocess-btn').style.display = 'block';
         document.getElementById('page-save-btn').style.display = 'block';
         updateNavButtons();
       }
@@ -2297,7 +2297,7 @@ async function loadFromUrl(url) {
   document.getElementById('loading').style.display = 'block';
   document.getElementById('loading-msg').textContent = t('loading_reading');
   document.getElementById('translation').innerHTML = '';
-  document.getElementById('copy-btn').style.display = 'none';
+  document.getElementById('copy-btn').style.display = 'none'; document.getElementById('reprocess-btn').style.display = 'none';
 
   if (screenshotServerAvailable) {
     origEmpty.textContent = t('screenshot_taking');
@@ -2368,7 +2368,7 @@ async function translateSingle(b64, mediaType) {
     const result = await callClaude(b64, mediaType);
     lastResult = result;
     render(result);
-    document.getElementById('copy-btn').style.display = 'block';
+    document.getElementById('copy-btn').style.display = 'block'; document.getElementById('reprocess-btn').style.display = 'block';
     document.getElementById('page-save-btn').style.display = 'block';
   } catch (err) {
     showTranslateError(err);
@@ -2412,7 +2412,7 @@ async function translateUrlDirect(imageUrl) {
   if (!m) throw new Error(t('error_no_json'));
   lastResult = JSON.parse(m[0]);
   render(lastResult);
-  document.getElementById('copy-btn').style.display = 'block';
+  document.getElementById('copy-btn').style.display = 'block'; document.getElementById('reprocess-btn').style.display = 'block';
   document.getElementById('page-save-btn').style.display = 'block';
 }
 
@@ -2422,7 +2422,7 @@ async function translateOcr(ocrText) {
   loading.style.display = 'block';
   document.getElementById('loading-msg').textContent = t('loading_ocr');
   trans.innerHTML = '';
-  document.getElementById('copy-btn').style.display = 'none';
+  document.getElementById('copy-btn').style.display = 'none'; document.getElementById('reprocess-btn').style.display = 'none';
 
   try {
     const apiKey = getApiKey();
@@ -2453,7 +2453,7 @@ async function translateOcr(ocrText) {
     if (!m) throw new Error(t('error_no_json'));
     lastResult = JSON.parse(m[0]);
     render(lastResult);
-    document.getElementById('copy-btn').style.display = 'block';
+    document.getElementById('copy-btn').style.display = 'block'; document.getElementById('reprocess-btn').style.display = 'block';
     document.getElementById('page-save-btn').style.display = 'block';
   } catch (err) {
     showTranslateError(err);
@@ -2492,7 +2492,7 @@ function handleImageFile(file) {
     document.getElementById('loading').style.display = 'block';
     document.getElementById('loading-msg').textContent = t('loading_reading');
     document.getElementById('translation').innerHTML = '';
-    document.getElementById('copy-btn').style.display = 'none';
+    document.getElementById('copy-btn').style.display = 'none'; document.getElementById('reprocess-btn').style.display = 'none';
 
     await translateSingle(b64, type);
   };
