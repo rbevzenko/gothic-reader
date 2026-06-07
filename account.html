@@ -94,6 +94,21 @@ tr:hover td { background: #f9fafb; }
 
 /* Password change */
 #change-password-form { display: none; }
+
+/* Projects */
+.project-list { display: flex; flex-direction: column; }
+.project-item { display: flex; align-items: center; gap: 1rem; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); }
+.project-item:last-child { border-bottom: none; }
+.project-item:hover { background: #f9fafb; }
+.proj-icon { font-size: 1.5rem; flex-shrink: 0; }
+.proj-info { flex: 1; min-width: 0; }
+.proj-name { font-weight: 600; font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.proj-meta { font-size: 0.75rem; color: var(--text-2); margin-top: 0.15rem; }
+.proj-progress { width: 120px; flex-shrink: 0; }
+.prog-bar { height: 4px; background: var(--border); border-radius: 99px; overflow: hidden; margin-bottom: 0.2rem; }
+.prog-fill { height: 100%; background: var(--green); border-radius: 99px; transition: width 0.3s; }
+.prog-label { font-size: 0.7rem; color: var(--text-3); text-align: right; }
+.proj-actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
 </style>
 </head>
 <body>
@@ -163,10 +178,21 @@ tr:hover td { background: #f9fafb; }
       </div>
     </div>
 
+    <!-- Projects -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">My Projects</span>
+        <span style="font-size:0.75rem;color:var(--text-3)">Pages saved automatically when processing</span>
+      </div>
+      <div id="projects-body">
+        <div class="empty-state">Loading…</div>
+      </div>
+    </div>
+
     <!-- Recent activity -->
     <div class="card">
       <div class="card-header">
-        <span class="card-title">Recent activity</span>
+        <span class="card-title">Recent API activity</span>
       </div>
       <div id="activity-body">
         <div class="empty-state">Loading…</div>
@@ -344,6 +370,7 @@ function showAccount(me) {
   updateBalance(me);
   renderActivity(me);
   renderPayments(me);
+  loadProjects();
 }
 
 function updateBalance(me) {
@@ -432,6 +459,55 @@ async function changePassword(e) {
     document.getElementById('change-password-form').style.display = 'none';
     alert('Password updated!');
   } catch (e) { err.textContent = e.message; err.style.display = 'block'; }
+}
+
+// ── Projects ──────────────────────────────────────────────────────────────────
+
+async function loadProjects() {
+  const el = document.getElementById('projects-body');
+  try {
+    const projects = await apiFetch('/api/projects');
+    if (!projects.length) {
+      el.innerHTML = '<div class="empty-state">No projects yet — open a PDF and start processing</div>';
+      return;
+    }
+    el.innerHTML = `<div class="project-list">${projects.map(p => projectHTML(p)).join('')}</div>`;
+  } catch {
+    el.innerHTML = '<div class="empty-state">Sign in to see your projects</div>';
+  }
+}
+
+function projectHTML(p) {
+  const done    = p.pages_done || 0;
+  const total   = p.total_pages || 0;
+  const pct     = total > 0 ? Math.round(done / total * 100) : 0;
+  const date    = fmtDate(p.updated_at);
+  return `
+    <div class="project-item">
+      <div class="proj-icon">📖</div>
+      <div class="proj-info">
+        <div class="proj-name" title="${escHtml(p.filename)}">${escHtml(p.name)}</div>
+        <div class="proj-meta">${done} of ${total} pages processed · ${date}</div>
+      </div>
+      <div class="proj-progress">
+        <div class="prog-bar"><div class="prog-fill" style="width:${pct}%"></div></div>
+        <div class="prog-label">${pct}%</div>
+      </div>
+      <div class="proj-actions">
+        <a href="/" class="btn btn-secondary" style="font-size:0.75rem;padding:0.25rem 0.7rem;text-decoration:none">Open</a>
+        <button onclick="deleteProject(${p.id})" class="btn btn-danger" style="font-size:0.75rem;padding:0.25rem 0.6rem">✕</button>
+      </div>
+    </div>`;
+}
+
+async function deleteProject(id) {
+  if (!confirm('Delete this project? Saved pages will be lost.')) return;
+  await apiFetch(`/api/projects/${id}`, 'DELETE');
+  loadProjects();
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

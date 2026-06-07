@@ -793,6 +793,7 @@
       <div id="pdf-pages-header">
         <span class="title" data-i18n="pages_bar_title">Pages</span>
         <span id="pdf-page-count"></span>
+        <span id="project-badge" style="display:none;font-size:0.72rem;color:var(--green);font-weight:500;margin-left:auto;"></span>
       </div>
       <div id="pdf-pages-strip"></div>
     </div>
@@ -1330,6 +1331,73 @@ let selectedPdfPage = null;
 let batchCancelled = false;
 let totalPages = 0;
 
+// ── Project state ─────────────────────────────────────────────────────────────
+let currentProjectId = null;
+
+function projectAuthHeaders() {
+  const token = getSessionToken();
+  return token
+    ? { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }
+    : { 'Content-Type': 'application/json', 'X-User-Id': getOrCreateUid() };
+}
+
+async function projectApi(method, path, body) {
+  const r = await fetch(WORKER_URL + path, {
+    method,
+    headers: projectAuthHeaders(),
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return r.json();
+}
+
+async function createOrLoadProject(filename, totalPages) {
+  if (!WORKER_URL || !getSessionToken()) return null;
+  try {
+    const proj = await projectApi('POST', '/api/projects', {
+      name: filename.replace(/\.pdf$/i, ''),
+      filename,
+      total_pages: totalPages,
+    });
+    currentProjectId = proj.id;
+    updateProjectBadge(proj);
+    return proj;
+  } catch { return null; }
+}
+
+async function savePageToProject(pageNum, result, model) {
+  if (!WORKER_URL || !currentProjectId) return;
+  try {
+    await projectApi('POST', `/api/projects/${currentProjectId}/pages`, {
+      page_num:    pageNum,
+      result_json: result,
+      model,
+    });
+  } catch (e) { console.warn('Failed to save page to project:', e); }
+}
+
+async function loadProjectPages() {
+  if (!WORKER_URL || !currentProjectId) return;
+  try {
+    const pages = await projectApi('GET', `/api/projects/${currentProjectId}/pages`);
+    pages.forEach(p => {
+      pdfResults[p.page_num] = p.result_json;
+      pdfThumbEls[p.page_num]?.classList.add('done');
+    });
+    if (pages.length > 0) {
+      updateProjectBadge({ pages_done: pages.length });
+    }
+  } catch {}
+}
+
+function updateProjectBadge(proj) {
+  let el = document.getElementById('project-badge');
+  if (!el) return;
+  const done  = proj.pages_done ?? Object.keys(pdfResults).length;
+  const total = proj.total_pages || totalPages;
+  el.textContent = `📁 ${proj.name || ''} · ${done}/${total} pages saved`;
+  el.style.display = 'block';
+}
+
 const SCREENSHOT_SERVER = 'http://localhost:3001';
 let screenshotServerAvailable = false;
 
@@ -1570,11 +1638,13 @@ pdfFileInput.addEventListener('change', e => { if (e.target.files[0]) loadPdf(e.
 
 async function loadPdf(file) {
   pdfDoc = null; pdfPageImages = {}; pdfResults = {}; pdfThumbEls = {};
-  selectedPdfPage = null;
+  selectedPdfPage = null; currentProjectId = null;
   document.getElementById('pdf-pages-strip').innerHTML = '';
   document.getElementById('save-pdf-btn').style.display = 'none';
   document.getElementById('columns').style.display = 'none';
   document.getElementById('batch-progress').style.display = 'none';
+  const badge = document.getElementById('project-badge');
+  if (badge) badge.style.display = 'none';
 
   const pageCountEl = document.getElementById('pdf-page-count');
   pageCountEl.textContent = t('loading_pdf');
@@ -1590,6 +1660,13 @@ async function loadPdf(file) {
   for (let i = 1; i <= totalPages; i++) {
     const thumb = await renderThumb(i);
     document.getElementById('pdf-pages-strip').appendChild(thumb);
+  }
+
+  // Create project and restore already-saved pages
+  if (WORKER_URL && getSessionToken()) {
+    await createOrLoadProject(file.name, totalPages);
+    await loadProjectPages();
+    checkSavePdfBtn();
   }
 }
 
@@ -1710,6 +1787,7 @@ async function processSinglePage(pageNum) {
     const result = await callClaude(b64, 'image/png');
     pdfResults[pageNum] = result;
     pdfThumbEls[pageNum]?.classList.add('done');
+    savePageToProject(pageNum, result, getModel());
     lastResult = result;
     render(result);
     copyBtn.style.display = 'block';
@@ -1796,6 +1874,8 @@ async function startBatch() {
       times.push(Date.now() - t0);
       pdfResults[pageNum] = result;
       pdfThumbEls[pageNum]?.classList.add('done');
+      savePageToProject(pageNum, result, getModel());
+      updateProjectBadge({ pages_done: Object.keys(pdfResults).length, total_pages: totalPages });
       if (selectedPdfPage === pageNum || !selectedPdfPage) {
         selectedPdfPage = pageNum;
         lastResult = result;

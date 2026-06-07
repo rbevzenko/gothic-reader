@@ -71,6 +71,29 @@ db.exec(`
     expires_at INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS projects (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    uid          TEXT    NOT NULL,
+    name         TEXT    NOT NULL,
+    filename     TEXT    NOT NULL DEFAULT '',
+    total_pages  INTEGER NOT NULL DEFAULT 0,
+    created_at   INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at   INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+
+  CREATE TABLE IF NOT EXISTS project_pages (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    page_num    INTEGER NOT NULL,
+    result_json TEXT    NOT NULL,
+    model       TEXT    NOT NULL DEFAULT '',
+    created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+    UNIQUE(project_id, page_num)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_projects_uid ON projects(uid);
+  CREATE INDEX IF NOT EXISTS idx_project_pages_pid ON project_pages(project_id);
+
   CREATE TABLE IF NOT EXISTS requests (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     uid           TEXT    NOT NULL,
@@ -216,6 +239,16 @@ app.post('/api/claude',   handleClaude);
 app.get('/api/credits',   handleCredits);
 app.post('/api/checkout', handleCheckout);
 
+// Projects
+app.get('/api/projects',                    requireAuth, listProjects);
+app.post('/api/projects',                   requireAuth, createProject);
+app.get('/api/projects/:id',                requireAuth, getProject);
+app.delete('/api/projects/:id',             requireAuth, deleteProject);
+app.put('/api/projects/:id',                requireAuth, updateProject);
+app.post('/api/projects/:id/pages',         requireAuth, saveProjectPage);
+app.get('/api/projects/:id/pages',          requireAuth, getProjectPages);
+app.delete('/api/projects/:id/pages/:num',  requireAuth, deleteProjectPage);
+
 // ── Admin routes ──────────────────────────────────────────────────────────────
 
 app.get('/admin',              adminAuth, serveAdmin);
@@ -233,6 +266,15 @@ app.get('/account', (req, res) => res.sendFile(path.join(__dirname, 'account.htm
 // Frontend
 app.use(express.static(__dirname));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+
+// ── Auth middleware ───────────────────────────────────────────────────────────
+
+function requireAuth(req, res, next) {
+  const uid = getUidFromRequest(req);
+  if (!uid) return res.status(401).json({ error: 'Not authenticated' });
+  req.uid = uid;
+  next();
+}
 
 // ── Auth handlers ─────────────────────────────────────────────────────────────
 
@@ -319,6 +361,79 @@ async function handleChangePassword(req, res) {
   if (!password || password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
   const hash = await bcrypt.hash(password, 10);
   db.prepare(`UPDATE users SET password_hash = ? WHERE uid = ?`).run(hash, uid);
+  res.json({ ok: true });
+}
+
+// ── Project handlers ──────────────────────────────────────────────────────────
+
+function listProjects(req, res) {
+  const rows = db.prepare(`
+    SELECT p.*,
+      (SELECT COUNT(*) FROM project_pages WHERE project_id = p.id) as pages_done
+    FROM projects p WHERE p.uid = ? ORDER BY p.updated_at DESC
+  `).all(req.uid);
+  res.json(rows);
+}
+
+function createProject(req, res) {
+  const { name, filename, total_pages } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const r = db.prepare(`
+    INSERT INTO projects (uid, name, filename, total_pages) VALUES (?, ?, ?, ?)
+  `).run(req.uid, name, filename || '', total_pages || 0);
+  const project = db.prepare(`SELECT * FROM projects WHERE id = ?`).get(r.lastInsertRowid);
+  res.json(project);
+}
+
+function getProject(req, res) {
+  const project = db.prepare(`SELECT * FROM projects WHERE id = ? AND uid = ?`).get(req.params.id, req.uid);
+  if (!project) return res.status(404).json({ error: 'Not found' });
+  const pages_done = db.prepare(`SELECT COUNT(*) as n FROM project_pages WHERE project_id = ?`).get(project.id).n;
+  res.json({ ...project, pages_done });
+}
+
+function updateProject(req, res) {
+  const { name, total_pages } = req.body;
+  const project = db.prepare(`SELECT * FROM projects WHERE id = ? AND uid = ?`).get(req.params.id, req.uid);
+  if (!project) return res.status(404).json({ error: 'Not found' });
+  db.prepare(`UPDATE projects SET name = ?, total_pages = ?, updated_at = unixepoch() WHERE id = ?`)
+    .run(name ?? project.name, total_pages ?? project.total_pages, project.id);
+  res.json({ ok: true });
+}
+
+function deleteProject(req, res) {
+  const r = db.prepare(`DELETE FROM projects WHERE id = ? AND uid = ?`).run(req.params.id, req.uid);
+  if (!r.changes) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true });
+}
+
+function saveProjectPage(req, res) {
+  const project = db.prepare(`SELECT * FROM projects WHERE id = ? AND uid = ?`).get(req.params.id, req.uid);
+  if (!project) return res.status(404).json({ error: 'Not found' });
+  const { page_num, result_json, model } = req.body;
+  if (!page_num || !result_json) return res.status(400).json({ error: 'page_num and result_json required' });
+  db.prepare(`
+    INSERT INTO project_pages (project_id, page_num, result_json, model) VALUES (?, ?, ?, ?)
+    ON CONFLICT(project_id, page_num) DO UPDATE SET result_json = excluded.result_json, model = excluded.model
+  `).run(project.id, page_num, typeof result_json === 'string' ? result_json : JSON.stringify(result_json), model || '');
+  db.prepare(`UPDATE projects SET updated_at = unixepoch() WHERE id = ?`).run(project.id);
+  res.json({ ok: true });
+}
+
+function getProjectPages(req, res) {
+  const project = db.prepare(`SELECT * FROM projects WHERE id = ? AND uid = ?`).get(req.params.id, req.uid);
+  if (!project) return res.status(404).json({ error: 'Not found' });
+  const pages = db.prepare(`
+    SELECT page_num, result_json, model, created_at FROM project_pages
+    WHERE project_id = ? ORDER BY page_num
+  `).all(project.id);
+  res.json(pages.map(p => ({ ...p, result_json: JSON.parse(p.result_json) })));
+}
+
+function deleteProjectPage(req, res) {
+  const project = db.prepare(`SELECT * FROM projects WHERE id = ? AND uid = ?`).get(req.params.id, req.uid);
+  if (!project) return res.status(404).json({ error: 'Not found' });
+  db.prepare(`DELETE FROM project_pages WHERE project_id = ? AND page_num = ?`).run(project.id, req.params.num);
   res.json({ ok: true });
 }
 
