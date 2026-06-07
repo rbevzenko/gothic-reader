@@ -1724,6 +1724,53 @@ async function getPdfPageImage(pageNum) {
   return pdfPageImages[pageNum];
 }
 
+// ── Project view (no PDF) ─────────────────────────────────────────────────────
+
+async function loadProjectView(projectId) {
+  try {
+    const [proj, pages] = await Promise.all([
+      projectApi('GET', `/api/projects/${projectId}`),
+      projectApi('GET', `/api/projects/${projectId}/pages`),
+    ]);
+
+    currentProjectId = projectId;
+    totalPages = proj.total_pages || 0;
+    pdfResults = {};
+    pdfThumbEls = {};
+    pdfDoc = null;
+
+    pages.forEach(p => { pdfResults[p.page_num] = p.result_json; });
+
+    document.getElementById('pdf-pages-strip').innerHTML = '';
+    document.getElementById('pdf-page-count').textContent = `${totalPages} pages`;
+    document.getElementById('pdf-pages-bar').style.display = 'block';
+    document.getElementById('mode-bar').style.display = 'flex';
+    document.getElementById('page-sel-row').style.display = 'flex';
+    document.getElementById('pdf-drop-zone').style.display = 'none';
+
+    for (let i = 1; i <= totalPages; i++) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'pdf-thumb' + (pdfResults[i] ? ' done' : '');
+      wrapper.innerHTML = `<div style="width:52px;height:70px;background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-size:0.7rem;color:var(--text-3)">${i}</div>`;
+      const label = document.createElement('span'); label.className = 'page-num'; label.textContent = i;
+      const mark  = document.createElement('span'); mark.className  = 'done-mark'; mark.textContent = '✓';
+      wrapper.appendChild(label); wrapper.appendChild(mark);
+      wrapper.addEventListener('click', () => openPdfPage(i));
+      pdfThumbEls[i] = wrapper;
+      document.getElementById('pdf-pages-strip').appendChild(wrapper);
+    }
+
+    updateProjectBadge({ name: proj.name, pages_done: pages.length, total_pages: totalPages });
+    checkSavePdfBtn();
+
+    // Open first processed page
+    const firstDone = pages.sort((a,b) => a.page_num - b.page_num)[0];
+    if (firstDone) openPdfPage(firstDone.page_num);
+  } catch(e) {
+    console.error('Failed to load project:', e);
+  }
+}
+
 async function openPdfPage(pageNum) {
   Object.values(pdfThumbEls).forEach(el => el.classList.remove('selected'));
   pdfThumbEls[pageNum]?.classList.add('selected');
@@ -1734,11 +1781,15 @@ async function openPdfPage(pageNum) {
 
   const origImg   = document.getElementById('orig-img');
   const origEmpty = document.getElementById('orig-empty');
-  origEmpty.textContent = t('rendering_page'); origEmpty.style.display = 'block';
   origImg.style.display = 'none';
 
-  const { dataUrl } = await getPdfPageImage(pageNum);
-  origImg.src = dataUrl; origImg.style.display = 'block'; origEmpty.style.display = 'none';
+  if (pdfDoc) {
+    origEmpty.textContent = t('rendering_page'); origEmpty.style.display = 'block';
+    const { dataUrl } = await getPdfPageImage(pageNum);
+    origImg.src = dataUrl; origImg.style.display = 'block'; origEmpty.style.display = 'none';
+  } else {
+    origEmpty.textContent = `Page ${pageNum}`; origEmpty.style.display = 'block';
+  }
 
   const copyBtn = document.getElementById('copy-btn');
   const reprocessBtn = document.getElementById('reprocess-btn');
@@ -2506,6 +2557,15 @@ function handleImageFile(file) {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 applyLang();
+
+// Open project from URL param ?project=ID
+(async () => {
+  const pid = new URLSearchParams(location.search).get('project');
+  if (pid && WORKER_URL) {
+    await updateCreditsDisplay();
+    await loadProjectView(pid);
+  }
+})();
 </script>
 </body>
 </html>
