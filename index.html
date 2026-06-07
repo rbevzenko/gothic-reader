@@ -777,6 +777,9 @@
         <option value="claude-opus-4-8">Opus 4 — максимум качества</option>
       </select>
       <span class="model-cost" id="model-cost-label"></span>
+      <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.78rem;color:var(--text-2);cursor:pointer;margin-left:0.5rem;white-space:nowrap">
+        <input type="checkbox" id="latin-toggle"> Латинские фрагменты
+      </label>
       <div class="spacer"></div>
       <button id="process-all-btn"><span>▶</span> Обработать все страницы</button>
     </div>
@@ -883,7 +886,18 @@
 <script>
 // ── Prompts ───────────────────────────────────────────────────────────────────
 
-const PROMPT_MODERNIZE = `Du bist Experte für deutsche Rechtsliteratur des 19. Jahrhunderts in Frakturschrift.
+function latinEnabled() {
+  return document.getElementById('latin-toggle').checked;
+}
+
+const LATIN_FIELD = `  "latin_fragments": [
+    { "original": "...", "translation": "...", "source": "..." }
+  ]`;
+const NO_LATIN_FIELD = `  "latin_fragments": []`;
+
+function PROMPT_MODERNIZE() {
+  const latin = latinEnabled();
+  return `Du bist Experte für deutsche Rechtsliteratur des 19. Jahrhunderts in Frakturschrift.
 Deine Aufgabe: Lies den Text aus dem Bild (Frakturschrift) und gib ihn in modernem Deutsch wieder.
 
 Regeln:
@@ -891,66 +905,70 @@ Regeln:
 2. Gib den Text in moderner deutscher Rechtschreibung wieder: ſ→s, Majuskelregeln modernisieren, veraltete Schreibweisen aktualisieren.
 3. Lateinische Passagen bleiben im Original.
 4. Jeder Absatz des Originals = ein separates Element im Array.
-5. Antworte NUR mit gültigem JSON — kein Markdown, keine Präambel.
+5. ${latin ? 'Lateinische Fragmente separat mit Übersetzung und Quelle auflisten.' : 'latin_fragments immer als leeres Array zurückgeben.'}
+6. Antworte NUR mit gültigem JSON — kein Markdown, keine Präambel.
 
-Antwortformat:
 {
   "title": "Seitentitel auf modernem Deutsch, oder leerer String",
   "paragraphs": ["erster Absatz", "zweiter Absatz"],
-  "latin_fragments": [
-    { "original": "lateinischer Text", "translation": "Übersetzung", "source": "Quelle" }
-  ]
+${latin ? LATIN_FIELD : NO_LATIN_FIELD}
 }`;
+}
 
-const PROMPT_TRANSLATE = (lang) => `Ты — специалист по немецкой юридической литературе XIX века.
+function PROMPT_TRANSLATE(lang) {
+  const latin = latinEnabled();
+  return `Ты — специалист по немецкой юридической литературе XIX века.
 Читаешь тексты, набранные готическим шрифтом (Fraktur), переводишь на ${lang}.
 
 Правила:
 1. Основной текст — немецкий в Fraktur. Читай точно, учитывая архаичную орфографию.
-2. Латинские слова обычно набраны антиквой — выделяй их отдельно.
-3. Для латинских фрагментов: дай перевод + источник.
+2. ${latin ? 'Латинские слова обычно набраны антиквой — выделяй их отдельно.' : 'latin_fragments всегда возвращай пустым массивом.'}
+3. ${latin ? 'Для латинских фрагментов: дай перевод + источник.' : ''}
 4. Юридические термины сохраняй в скобках на немецком/латыни после перевода.
-5. Каждый абзац оригинала — отдельный элемент массива. Порядок и количество абзацев должны совпадать.
+5. Каждый абзац оригинала — отдельный элемент массива.
 6. Отвечай ТОЛЬКО валидным JSON — без markdown, без преамбулы.
 
-Формат:
 {
   "title": "заголовок на ${lang}, или пустая строка",
   "paragraphs": ["перевод первого абзаца", "перевод второго абзаца"],
-  "latin_fragments": [
-    { "original": "латинский текст", "translation": "перевод", "source": "источник" }
-  ]
+${latin ? LATIN_FIELD : NO_LATIN_FIELD}
 }`;
+}
 
-const PROMPT_TEXT_MODERNIZE = `Du bist Experte für deutsche Rechtsliteratur des 19. Jahrhunderts in Frakturschrift.
+function PROMPT_TEXT_MODERNIZE() {
+  const latin = latinEnabled();
+  return `Du bist Experte für deutsche Rechtsliteratur des 19. Jahrhunderts in Frakturschrift.
 Du erhältst OCR-Text einer Seite. Modernisiere die Orthographie und gib den Text in modernem Deutsch wieder.
 
 Regeln:
 1. Modernisiere: ſ→s, veraltete Schreibweisen aktualisieren.
-2. Lateinische Passagen im Original belassen.
-3. Jeden Absatz separat im Array.
+2. Jeden Absatz separat im Array.
+3. ${latin ? 'Lateinische Fragmente separat mit Übersetzung und Quelle.' : 'latin_fragments als leeres Array.'}
 4. Nur gültiges JSON — kein Markdown.
 
 {
   "title": "Seitentitel modernisiert, oder leerer String",
   "paragraphs": ["erster Absatz", ...],
-  "latin_fragments": [{ "original": "...", "translation": "...", "source": "..." }]
+${latin ? LATIN_FIELD : NO_LATIN_FIELD}
 }`;
+}
 
-const PROMPT_TEXT_TRANSLATE = (lang) => `Ты — специалист по немецкой юридической литературе XIX века.
+function PROMPT_TEXT_TRANSLATE(lang) {
+  const latin = latinEnabled();
+  return `Ты — специалист по немецкой юридической литературе XIX века.
 Получаешь OCR-текст страницы. Переведи на ${lang}.
 
 ПРАВИЛА:
-1. ВСЕ элементы массива paragraphs — ТОЛЬКО на ${lang}. Никакого немецкого в paragraphs.
+1. ВСЕ элементы массива paragraphs — ТОЛЬКО на ${lang}.
 2. title ОБЯЗАТЕЛЬНО переведи на ${lang}.
-3. Латинские слова выделяй отдельно.
+3. ${latin ? 'Латинские слова выделяй отдельно с переводом и источником.' : 'latin_fragments всегда возвращай пустым массивом.'}
 4. Юридические термины сохраняй в скобках на немецком/латыни.
 5. Каждый абзац — отдельный элемент. Только JSON.
 
 {
   "title": "заголовок на ${lang}",
   "paragraphs": ["..."],
-  "latin_fragments": [{ "original": "...", "translation": "...", "source": "..." }]
+${latin ? LATIN_FIELD : NO_LATIN_FIELD}
 }`;
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -1405,7 +1423,7 @@ async function callClaude(b64, mediaType) {
 
   const mode   = getOutputMode();
   const lang   = getTranslateLang();
-  const prompt = mode === 'modernize' ? PROMPT_MODERNIZE : PROMPT_TRANSLATE(lang);
+  const prompt = mode === 'modernize' ? PROMPT_MODERNIZE() : PROMPT_TRANSLATE(lang);
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -1790,7 +1808,7 @@ async function translateUrlDirect(imageUrl) {
   if (!apiKey) throw new Error('Введите Anthropic API Key');
   const mode   = getOutputMode();
   const lang   = getTranslateLang();
-  const prompt = mode === 'modernize' ? PROMPT_MODERNIZE : PROMPT_TRANSLATE(lang);
+  const prompt = mode === 'modernize' ? PROMPT_MODERNIZE() : PROMPT_TRANSLATE(lang);
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -1837,7 +1855,7 @@ async function translateOcr(ocrText) {
     if (!apiKey) throw new Error('Введите Anthropic API Key');
     const mode   = getOutputMode();
     const lang   = getTranslateLang();
-    const prompt = mode === 'modernize' ? PROMPT_TEXT_MODERNIZE : PROMPT_TEXT_TRANSLATE(lang);
+    const prompt = mode === 'modernize' ? PROMPT_TEXT_MODERNIZE() : PROMPT_TEXT_TRANSLATE(lang);
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
