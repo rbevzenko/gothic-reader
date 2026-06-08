@@ -1507,6 +1507,12 @@ function doChangeApiKey() {
 }
 
 function updateApikeyUI() {
+  // In hosted mode with a session token, hide the entire API key section
+  if (WORKER_URL && getSessionToken()) {
+    apikeyBar.style.display = 'none';
+    apikeySaved.style.display = 'none';
+    return;
+  }
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved) {
     apikeyInput.value = saved;
