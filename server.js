@@ -13,6 +13,8 @@
  *   GET  /api/credits?uid=…    — return credit balance (legacy)
  *   POST /api/checkout         — create Stripe Checkout session
  *   POST /api/stripe-webhook   — Stripe webhook → top-up credits
+ *   POST /api/checkout-ru      — create YooKassa payment
+ *   POST /api/yookassa-webhook — YooKassa webhook → top-up credits
  *   GET  /admin                — admin panel (HTTP Basic Auth)
  *   GET  /admin/api/*          — admin API
  *   GET  /account              — user account page
@@ -191,9 +193,9 @@ function getPackages() {
     if (s) return JSON.parse(s);
   } catch {}
   return {
-    pages_100:  { credits: 100,  amount_eur: 3.90,  price_id: process.env.STRIPE_PRICE_100  || '' },
-    pages_500:  { credits: 500,  amount_eur: 14.90, price_id: process.env.STRIPE_PRICE_500  || '' },
-    pages_1000: { credits: 1000, amount_eur: 24.90, price_id: process.env.STRIPE_PRICE_1000 || '' },
+    pages_100:  { credits: 100,  amount_eur: 5.00,  amount_rub: 490,  price_id: process.env.STRIPE_PRICE_100  || '' },
+    pages_500:  { credits: 500,  amount_eur: 15.00, amount_rub: 1490, price_id: process.env.STRIPE_PRICE_500  || '' },
+    pages_1000: { credits: 1000, amount_eur: 25.00, amount_rub: 2490, price_id: process.env.STRIPE_PRICE_1000 || '' },
   };
 }
 
@@ -209,7 +211,8 @@ app.use((req, res, next) => {
   next();
 });
 
-app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), handleWebhook);
+app.post('/api/stripe-webhook',   express.raw({ type: 'application/json' }), handleWebhook);
+app.post('/api/yookassa-webhook', express.json(), handleYooKassaWebhook);
 app.use(express.json({ limit: '20mb' }));
 
 // ── Admin auth middleware ─────────────────────────────────────────────────────
@@ -235,9 +238,10 @@ app.post('/api/auth/logout',          handleLogout);
 app.get('/api/auth/me',              handleMe);
 app.post('/api/auth/change-password', handleChangePassword);
 
-app.post('/api/claude',   handleClaude);
-app.get('/api/credits',   handleCredits);
-app.post('/api/checkout', handleCheckout);
+app.post('/api/claude',        handleClaude);
+app.get('/api/credits',        handleCredits);
+app.post('/api/checkout',      handleCheckout);
+app.post('/api/checkout-ru',   handleCheckoutRu);
 
 // Projects
 app.get('/api/projects',                    requireAuth, listProjects);
@@ -543,6 +547,68 @@ async function handleWebhook(req, res) {
       stmtLogPayment.run(uid, package_id, pkg.credits, pkg.amount_eur, event.data.object.id);
       console.log(`[payment] ${uid} +${pkg.credits} credits (${pkg.amount_eur}€)`);
     }
+  }
+
+  res.send('OK');
+}
+
+// ── YooKassa ──────────────────────────────────────────────────────────────────
+
+async function handleCheckoutRu(req, res) {
+  const { uid, package_id, success_url, cancel_url } = req.body;
+  const packages = getPackages();
+  const pkg = packages[package_id];
+  if (!pkg) return res.status(400).json({ error: 'Unknown package' });
+  if (!uid)  return res.status(400).json({ error: 'Missing uid' });
+
+  const shopId    = process.env.YOOKASSA_SHOP_ID;
+  const secretKey = process.env.YOOKASSA_SECRET_KEY;
+  if (!shopId || !secretKey) return res.status(503).json({ error: 'YooKassa not configured' });
+
+  const idempotenceKey = crypto.randomUUID();
+  const amountRub = pkg.amount_rub || Math.round(pkg.amount_eur * 95); // fallback conversion
+
+  try {
+    const r = await fetch('https://api.yookassa.ru/v2/payments', {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Idempotence-Key': idempotenceKey,
+        'Authorization': 'Basic ' + Buffer.from(`${shopId}:${secretKey}`).toString('base64'),
+      },
+      body: JSON.stringify({
+        amount:      { value: amountRub.toFixed(2), currency: 'RUB' },
+        capture:     true,
+        confirmation: {
+          type:       'redirect',
+          return_url: success_url || 'https://fraktur.app/account?payment=ok',
+        },
+        description: `Fraktur.app — ${pkg.credits} pages`,
+        metadata:    { uid, package_id },
+      }),
+    });
+
+    const payment = await r.json();
+    if (!r.ok) return res.status(r.status).json(payment);
+    res.json({ url: payment.confirmation.confirmation_url });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+}
+
+async function handleYooKassaWebhook(req, res) {
+  const event = req.body;
+  if (!event || event.type !== 'payment.succeeded') return res.send('OK');
+
+  const { uid, package_id } = event.object?.metadata || {};
+  const packages = getPackages();
+  const pkg = packages[package_id];
+  if (uid && pkg) {
+    const cur = fetchUser(uid);
+    saveBalance(uid, cur.balance + pkg.credits, (cur.total_bought || 0) + pkg.credits);
+    const amount = parseFloat(event.object?.amount?.value || 0);
+    stmtLogPayment.run(uid, package_id, pkg.credits, amount / 95, event.object.id); // store as EUR equiv
+    console.log(`[yookassa] ${uid} +${pkg.credits} credits`);
   }
 
   res.send('OK');

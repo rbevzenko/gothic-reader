@@ -243,22 +243,41 @@ tr:hover td { background: #f9fafb; }
   <div id="modal">
     <h2>Buy Pages</h2>
     <p>Credits never expire. Each page = 1 credit.</p>
-    <div class="pkg-list">
-      <button class="pkg-item" onclick="checkout('pages_100')">
+    <div style="display:flex;gap:0.5rem;margin-bottom:1rem">
+      <button id="pay-stripe-btn" class="btn btn-secondary" style="flex:1;font-size:0.82rem" onclick="setPayMethod('stripe')">💳 Card (EUR)</button>
+      <button id="pay-ru-btn"     class="btn btn-secondary" style="flex:1;font-size:0.82rem" onclick="setPayMethod('ru')">🇷🇺 ЮКасса (₽)</button>
+    </div>
+    <div class="pkg-list" id="pkg-list-stripe">
+      <button class="pkg-item" onclick="checkout('pages_100','stripe')">
         <div class="pkg-name">100 pages</div>
-        <div class="pkg-price">€3.90 · €0.039 per page</div>
+        <div class="pkg-price">€5.00 · €0.050 per page</div>
       </button>
-      <button class="pkg-item" onclick="checkout('pages_500')">
+      <button class="pkg-item" onclick="checkout('pages_500','stripe')">
         <div class="pkg-name">500 pages</div>
-        <div class="pkg-price">€14.90 · €0.030 per page</div>
+        <div class="pkg-price">€15.00 · €0.030 per page</div>
       </button>
-      <button class="pkg-item best" onclick="checkout('pages_1000')">
+      <button class="pkg-item best" onclick="checkout('pages_1000','stripe')">
         <span class="pkg-badge">Best value</span>
         <div class="pkg-name">1000 pages</div>
-        <div class="pkg-price">€24.90 · €0.025 per page</div>
+        <div class="pkg-price">€25.00 · €0.025 per page</div>
       </button>
     </div>
-    <button onclick="closeBuyModal()" class="btn btn-secondary" style="width:100%">Cancel</button>
+    <div class="pkg-list" id="pkg-list-ru" style="display:none">
+      <button class="pkg-item" onclick="checkout('pages_100','ru')">
+        <div class="pkg-name">100 страниц</div>
+        <div class="pkg-price">490 ₽ · 4.90 ₽ за страницу</div>
+      </button>
+      <button class="pkg-item" onclick="checkout('pages_500','ru')">
+        <div class="pkg-name">500 страниц</div>
+        <div class="pkg-price">1490 ₽ · 2.98 ₽ за страницу</div>
+      </button>
+      <button class="pkg-item best" onclick="checkout('pages_1000','ru')">
+        <span class="pkg-badge">Выгоднее всего</span>
+        <div class="pkg-name">1000 страниц</div>
+        <div class="pkg-price">2490 ₽ · 2.49 ₽ за страницу</div>
+      </button>
+    </div>
+    <button onclick="closeBuyModal()" class="btn btn-secondary" style="width:100%;margin-top:0.5rem">Cancel</button>
   </div>
 </div>
 
@@ -427,11 +446,18 @@ function renderPayments(me) {
 function openBuyModal()  { document.getElementById('modal-overlay').classList.add('open'); }
 function closeBuyModal() { document.getElementById('modal-overlay').classList.remove('open'); }
 
-async function checkout(packageId) {
-  const token = localStorage.getItem(TOKEN_KEY);
-  const uid   = localStorage.getItem(UID_KEY);
+function setPayMethod(method) {
+  document.getElementById('pkg-list-stripe').style.display = method === 'stripe' ? 'flex' : 'none';
+  document.getElementById('pkg-list-ru').style.display     = method === 'ru'     ? 'flex' : 'none';
+  document.getElementById('pay-stripe-btn').style.fontWeight = method === 'stripe' ? '700' : '400';
+  document.getElementById('pay-ru-btn').style.fontWeight     = method === 'ru'     ? '700' : '400';
+}
+
+async function checkout(packageId, method = 'stripe') {
+  const uid = localStorage.getItem(UID_KEY);
+  const endpoint = method === 'ru' ? '/api/checkout-ru' : '/api/checkout';
   try {
-    const d = await apiFetch('/api/checkout', 'POST', {
+    const d = await apiFetch(endpoint, 'POST', {
       uid,
       package_id:  packageId,
       success_url: location.origin + '/account?payment=ok',
