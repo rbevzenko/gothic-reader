@@ -564,6 +564,10 @@ async function handleCheckoutRu(req, res) {
   const proxyUrl = process.env.YOOKASSA_PROXY_URL;
   if (!proxyUrl) return res.status(503).json({ error: 'YooKassa not configured' });
 
+  // Get user email for receipt
+  const user = fetchUser(uid);
+  const email = user?.email || 'noreply@fraktur.app';
+
   const idempotenceKey = crypto.randomUUID();
   const amountRub = pkg.amount_rub || Math.round(pkg.amount_eur * 95);
 
@@ -581,6 +585,15 @@ async function handleCheckoutRu(req, res) {
         },
         description: `Fraktur.app — ${pkg.credits} pages`,
         metadata:    { uid, package_id },
+        receipt: {
+          customer: { email },
+          items: [{
+            description: `Fraktur.app — ${pkg.credits} страниц`,
+            quantity:    '1.00',
+            amount:      { value: amountRub.toFixed(2), currency: 'RUB' },
+            vat_code:    1,
+          }],
+        },
       }),
     });
 
