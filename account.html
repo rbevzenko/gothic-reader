@@ -454,7 +454,7 @@ function setPayMethod(method) {
 }
 
 async function checkout(packageId, method = 'stripe') {
-  const uid = localStorage.getItem(UID_KEY);
+  const uid = userData?.uid || localStorage.getItem(UID_KEY);
   const endpoint = method === 'ru' ? '/api/checkout-ru' : '/api/checkout';
   try {
     const d = await apiFetch(endpoint, 'POST', {
