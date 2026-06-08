@@ -561,22 +561,18 @@ async function handleCheckoutRu(req, res) {
   if (!pkg) return res.status(400).json({ error: 'Unknown package' });
   if (!uid)  return res.status(400).json({ error: 'Missing uid' });
 
-  const shopId    = process.env.YOOKASSA_SHOP_ID;
-  const secretKey = process.env.YOOKASSA_SECRET_KEY;
-  if (!shopId || !secretKey) return res.status(503).json({ error: 'YooKassa not configured' });
+  const proxyUrl = process.env.YOOKASSA_PROXY_URL;
+  if (!proxyUrl) return res.status(503).json({ error: 'YooKassa not configured' });
 
   const idempotenceKey = crypto.randomUUID();
-  const amountRub = pkg.amount_rub || Math.round(pkg.amount_eur * 95); // fallback conversion
+  const amountRub = pkg.amount_rub || Math.round(pkg.amount_eur * 95);
 
   try {
-    const r = await fetch('https://api.yookassa.ru/v2/payments', {
+    const r = await fetch(proxyUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Idempotence-Key': idempotenceKey,
-        'Authorization': 'Basic ' + Buffer.from(`${shopId}:${secretKey}`).toString('base64'),
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        _idempotence_key: idempotenceKey,
         amount:      { value: amountRub.toFixed(2), currency: 'RUB' },
         capture:     true,
         confirmation: {
