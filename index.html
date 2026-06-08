@@ -6,30 +6,31 @@
 <title>Gothic Reader — Fraktur Modernization</title>
 <link rel="icon" type="image/png" href="/logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:wght@400;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --bg:       #f3f4f6;
+    --bg:       #faf9f7;
     --surface:  #ffffff;
-    --surface-2:#f9fafb;
-    --border:   #e5e7eb;
-    --border-2: #d1d5db;
-    --text:     #111827;
-    --text-2:   #6b7280;
-    --text-3:   #9ca3af;
-    --accent:   #2563eb;
-    --accent-h: #1d4ed8;
-    --green:    #059669;
-    --green-h:  #047857;
-    --red:      #dc2626;
-    --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
-    --shadow:    0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.05);
-    --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.05);
-    --radius:   8px;
-    --radius-sm:5px;
+    --surface-2:#f7f6f3;
+    --border:   #e8e4dc;
+    --border-2: #d5cfc4;
+    --text:     #1a1814;
+    --text-2:   #6b6560;
+    --text-3:   #9e9890;
+    --accent:   #2c5282;
+    --accent-h: #1e3a5f;
+    --green:    #276749;
+    --green-h:  #1e5237;
+    --red:      #c53030;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+    --shadow:    0 2px 6px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 8px 24px rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.05);
+    --radius:   6px;
+    --radius-sm:4px;
+    --font-serif: 'Playfair Display', Georgia, 'Times New Roman', serif;
   }
 
   body {
@@ -50,27 +51,29 @@
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     padding: 0 1.5rem;
-    height: 52px;
+    height: 56px;
     display: flex;
     align-items: center;
     gap: 0.75rem;
     position: sticky;
     top: 0;
     z-index: 10;
-    box-shadow: var(--shadow-sm);
+    box-shadow: 0 1px 0 var(--border);
   }
   #header .logo-icon { font-size: 1.25rem; line-height: 1; }
   #header h1 {
-    font-size: 0.95rem;
+    font-family: var(--font-serif);
+    font-size: 1.2rem;
     font-weight: 600;
     color: var(--text);
-    letter-spacing: -0.01em;
+    letter-spacing: 0.01em;
   }
   #header .sep { color: var(--border-2); font-weight: 300; }
   #header p {
-    font-size: 0.75rem;
-    color: var(--text-2);
+    font-size: 0.72rem;
+    color: var(--text-3);
     font-weight: 400;
+    letter-spacing: 0.02em;
   }
 
   #app {
@@ -154,22 +157,22 @@
   }
 
   #pdf-drop-zone {
-    padding: 2rem 1rem;
+    padding: 3rem 2rem;
     text-align: center;
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background 0.2s, border-color 0.2s;
     background: var(--surface);
-    border: 2px dashed var(--border);
+    border: 1.5px solid var(--border);
     border-radius: var(--radius);
-    margin: 0.75rem;
+    margin: 1rem;
   }
   #pdf-drop-zone:hover, #pdf-drop-zone.drag {
     border-color: var(--accent);
-    background: #eff6ff;
+    background: #f0f4fa;
   }
-  #pdf-drop-zone .icon { font-size: 2rem; margin-bottom: 0.5rem; }
-  #pdf-drop-zone strong { font-size: 0.95rem; font-weight: 600; color: var(--text); display: block; margin-bottom: 0.3rem; }
-  #pdf-drop-zone span { font-size: 0.78rem; color: var(--text-2); }
+  #pdf-drop-zone .icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+  #pdf-drop-zone strong { font-family: var(--font-serif); font-size: 1.05rem; font-weight: 600; color: var(--text); display: block; margin-bottom: 0.4rem; }
+  #pdf-drop-zone span { font-size: 0.78rem; color: var(--text-3); }
 
   /* Mode bar */
   #mode-bar {
@@ -203,7 +206,7 @@
     font-weight: 400;
   }
   .mode-options label:has(input:checked) {
-    background: #eff6ff;
+    background: #eef2f8;
     border-color: var(--accent);
     color: var(--accent);
     font-weight: 500;
@@ -466,10 +469,11 @@
   #orig-img { max-width: 100%; border-radius: 4px; border: 1px solid var(--border); display: none; }
 
   /* Result text */
-  #translation { font-size: 0.875rem; }
+  #translation { font-size: 0.9rem; }
 
   .para {
-    line-height: 1.8;
+    font-family: Georgia, 'Times New Roman', serif;
+    line-height: 1.9;
     padding-bottom: 0.85rem;
     border-bottom: 1px solid var(--border);
     margin-bottom: 0.85rem;
@@ -522,12 +526,13 @@
     line-height: 1.7;
   }
   .title-heading {
-    font-size: 1rem;
+    font-family: var(--font-serif);
+    font-size: 1.1rem;
     font-weight: 600;
     text-align: center;
     color: var(--text);
     margin-bottom: 1rem;
-    letter-spacing: -0.01em;
+    letter-spacing: 0.01em;
   }
   .error {
     color: var(--red);
@@ -615,7 +620,7 @@
     font-size: 0.8rem;
     color: var(--text-2);
   }
-  #upload-zone:hover, #upload-zone.drag { border-color: var(--accent); background: #eff6ff; color: var(--accent); }
+  #upload-zone:hover, #upload-zone.drag { border-color: var(--accent); background: #eef2f8; color: var(--accent); }
 
   .or-divider {
     text-align: center;
@@ -669,7 +674,7 @@
     transition: all 0.12s;
   }
   .page-sel-options label:has(input:checked) {
-    background: #eff6ff; border-color: var(--accent); color: var(--accent); font-weight: 500;
+    background: #eef2f8; border-color: var(--accent); color: var(--accent); font-weight: 500;
   }
   .page-sel-options label input { display: none; }
   .page-num-input {
