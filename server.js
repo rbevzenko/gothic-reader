@@ -592,6 +592,8 @@ async function handleCheckoutRu(req, res) {
             quantity:    '1.00',
             amount:      { value: amountRub.toFixed(2), currency: 'RUB' },
             vat_code:    1,
+            payment_subject: 'service',
+            payment_mode:    'full_payment',
           }],
         },
       }),
