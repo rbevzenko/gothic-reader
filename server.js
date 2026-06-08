@@ -609,7 +609,7 @@ async function handleCheckoutRu(req, res) {
 
 async function handleYooKassaWebhook(req, res) {
   const event = req.body;
-  if (!event || event.type !== 'payment.succeeded') return res.send('OK');
+  if (!event || event.event !== 'payment.succeeded') return res.send('OK');
 
   const { uid, package_id } = event.object?.metadata || {};
   const packages = getPackages();
