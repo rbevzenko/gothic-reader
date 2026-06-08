@@ -30,7 +30,7 @@ async function handleYooKassa(request, env) {
 
   const auth = btoa(`${env.YOOKASSA_SHOP_ID}:${env.YOOKASSA_SECRET_KEY}`);
 
-  const r = await fetch('https://api.yookassa.ru/v2/payments', {
+  const r = await fetch('https://api.yookassa.ru/v3/payments', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
