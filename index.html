@@ -1558,15 +1558,13 @@ async function initHostedMode() {
     document.getElementById('apikey-bar').style.display = 'none';
   }
 
-  const credits = await fetchCredits();
-  updateCreditsBadge(credits ?? 0);
-
-  // Restrict model selection to admin user
+  // Single /api/auth/me call: update badge + restrict model
   try {
     const token = getSessionToken();
     if (token) {
       const r = await fetch(`${WORKER_URL}/api/auth/me`, { headers: { 'Authorization': 'Bearer ' + token } });
       const d = await r.json();
+      updateCreditsBadge(d.balance ?? 0);
       if (d.email !== 'rbevzenko@gmail.com') {
         const ms = document.getElementById('model-select');
         ms.value = 'claude-haiku-4-5-20251001';
@@ -1574,8 +1572,14 @@ async function initHostedMode() {
         ms.style.pointerEvents = 'none';
         ms.style.opacity = '0.5';
       }
+    } else {
+      const credits = await fetchCredits();
+      updateCreditsBadge(credits ?? 0);
     }
-  } catch {}
+  } catch {
+    const credits = await fetchCredits();
+    updateCreditsBadge(credits ?? 0);
+  }
 
 
   // Handle post-payment redirect
