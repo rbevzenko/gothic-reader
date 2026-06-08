@@ -977,6 +977,7 @@ const TRANSLATIONS = {
     orig_empty: 'Load a PDF or select a page',
     copy_btn: 'Copy',
     reprocess_btn: '↺ Re-process',
+    reprocess_warn: '{n} page(s) were processed with previous settings. Reprocess them with new settings?',
     loading_reading: 'Reading Gothic script…',
     result_empty: 'Result will appear here',
     secondary_label: 'Single page — URL or image',
@@ -1044,6 +1045,7 @@ const TRANSLATIONS = {
     orig_empty: 'PDF laden oder Seite auswählen',
     copy_btn: 'Kopieren',
     reprocess_btn: '↺ Neu verarbeiten',
+    reprocess_warn: '{n} Seite(n) wurden mit vorherigen Einstellungen verarbeitet. Mit neuen Einstellungen neu verarbeiten?',
     loading_reading: 'Lese Frakturschrift…',
     result_empty: 'Ergebnis erscheint hier',
     secondary_label: 'Einzelseite — URL oder Bild',
@@ -1110,6 +1112,7 @@ const TRANSLATIONS = {
     orig_empty: 'Загрузите PDF или выберите страницу',
     copy_btn: 'Копировать',
     reprocess_btn: '↺ Переработать',
+    reprocess_warn: '{n} стр. обработано с прежними настройками. Переработать с новыми?',
     loading_reading: 'Читаю готический шрифт…',
     result_empty: 'Здесь появится результат',
     secondary_label: 'Одна страница — URL или изображение',
@@ -1176,6 +1179,7 @@ const TRANSLATIONS = {
     orig_empty: 'Chargez un PDF ou sélectionnez une page',
     copy_btn: 'Copier',
     reprocess_btn: '↺ Retraiter',
+    reprocess_warn: '{n} page(s) traitée(s) avec les paramètres précédents. Retraiter avec les nouveaux paramètres?',
     loading_reading: "Lecture de l'écriture gothique…",
     result_empty: 'Le résultat apparaîtra ici',
     secondary_label: 'Page unique — URL ou image',
@@ -1657,14 +1661,29 @@ function updateModelCostLabel() {
   el.className   = 'model-cost' + (info?.cls ? ' ' + info.cls : '');
 }
 
+function warnIfResultsExist(onChange) {
+  const doneCount = Object.keys(pdfResults).length;
+  if (doneCount > 0) {
+    const msg = t('reprocess_warn', { n: doneCount }) ||
+      `${doneCount} page(s) were processed with previous settings. Reprocess them with new settings?`;
+    if (confirm(msg)) {
+      pdfResults = {};
+      document.querySelectorAll('.pdf-thumb.done').forEach(el => el.classList.remove('done'));
+    }
+  }
+  onChange();
+}
+
 document.querySelectorAll('input[name="output-mode"]').forEach(r => {
   r.addEventListener('change', () => {
-    translateLangEl.style.display = r.value === 'translate' && r.checked ? 'inline-block' : 'none';
-    if (!userPickedModel) {
-      modelSelectEl.value = MODEL_DEFAULTS[r.value] || MODEL_DEFAULTS.modernize;
-      updateModelCostLabel();
-    }
-    updateResultPanelTitle();
+    warnIfResultsExist(() => {
+      translateLangEl.style.display = r.value === 'translate' && r.checked ? 'inline-block' : 'none';
+      if (!userPickedModel) {
+        modelSelectEl.value = MODEL_DEFAULTS[r.value] || MODEL_DEFAULTS.modernize;
+        updateModelCostLabel();
+      }
+      updateResultPanelTitle();
+    });
   });
 });
 
@@ -1673,7 +1692,9 @@ modelSelectEl.addEventListener('change', () => {
   updateModelCostLabel();
 });
 
-translateLangEl.addEventListener('change', updateResultPanelTitle);
+translateLangEl.addEventListener('change', () => {
+  warnIfResultsExist(updateResultPanelTitle);
+});
 
 modelSelectEl.value = MODEL_DEFAULTS.modernize;
 updateModelCostLabel();
