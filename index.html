@@ -2275,12 +2275,13 @@ document.getElementById('page-save-btn').addEventListener('click', () => {
   else if (lastResult) saveSinglePagePdf(null, lastResult);
 });
 
-function buildPdfHtml(pages, lang) {
+function buildPdfHtml(pages, lang, docTitle) {
+  const title = docTitle || `Gothic Reader — ${lang}`;
   return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Gothic Reader — ${escHtml(lang)}</title>
+<title>${escHtml(title)}</title>
 <style>
   @page { margin: 2.5cm; size: A4; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -2341,9 +2342,9 @@ function getDownloadFilename(suffix) {
 }
 
 function generateAndDownloadPdf(pages, filename) {
-  const html = buildPdfHtml(pages, getDownloadSuffix());
+  const docTitle = filename.replace(/\.pdf$/i, '');
+  const html = buildPdfHtml(pages, getDownloadSuffix(), docTitle);
   const win = window.open('', '_blank');
-  win.document.title = filename.replace(/\.pdf$/i, '');
   win.document.write(html);
   win.document.close();
   win.addEventListener('load', () => setTimeout(() => win.print(), 400));
