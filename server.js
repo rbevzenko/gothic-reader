@@ -609,6 +609,15 @@ ${latin ? LATIN_FIELD : NO_LATIN_FIELD}
 let pdfjsLib = null;
 async function getPdfjsLib() {
   if (!pdfjsLib) {
+    // Polyfill HTMLImageElement for pdfjs inline image rendering in Node.js
+    const canvasModule = await import('canvas');
+    if (!globalThis.Image) globalThis.Image = canvasModule.Image;
+    if (!globalThis.document) globalThis.document = {
+      createElement: (tag) => {
+        if (tag === 'canvas') return createCanvas(1, 1);
+        return {};
+      }
+    };
     pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
   }
   return pdfjsLib;
