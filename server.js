@@ -484,8 +484,12 @@ function deleteProjectPage(req, res) {
 // ── Job handlers ──────────────────────────────────────────────────────────────
 
 function createJob(req, res) {
-  const pages  = req.body.pages ? JSON.parse(req.body.pages) : null;
-  const { project_id, mode, lang, model, latin } = req.body;
+  let pages;
+  try {
+    pages = typeof req.body.pages === 'string' ? JSON.parse(req.body.pages) : req.body.pages;
+  } catch { pages = null; }
+  const { project_id, mode, lang, model } = req.body;
+  const latin = req.body.latin === '1' || req.body.latin === 1 || req.body.latin === true;
 
   if (!project_id || !pages || !Array.isArray(pages) || pages.length === 0) {
     if (req.file) fs.unlinkSync(req.file.path);
