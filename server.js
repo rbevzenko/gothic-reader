@@ -700,9 +700,16 @@ async function processNextJob() {
       stmtLogRequest.run(job.uid, job.model, inputTokens, outputTokens, calcCost(job.model, inputTokens, outputTokens));
 
       const raw = (data.content || []).map(b => b.text || '').join('');
-      const m   = raw.match(/\{[\s\S]*\}/);
-      if (!m) throw new Error('No JSON in response');
-      const result = JSON.parse(m[0]);
+      const start = raw.indexOf('{');
+      const end   = raw.lastIndexOf('}');
+      if (start === -1 || end === -1) throw new Error('No JSON in response');
+      let result;
+      try {
+        result = JSON.parse(raw.slice(start, end + 1));
+      } catch {
+        // Fallback: store raw text as single paragraph so page is not lost
+        result = { title: '', paragraphs: [raw.slice(start, end + 1).replace(/[\x00-\x1F]/g, ' ')] };
+      }
 
       db.prepare(`INSERT OR REPLACE INTO project_pages (project_id, page_num, result_json, model) VALUES (?, ?, ?, ?)`)
         .run(job.project_id, pageNum, JSON.stringify(result), job.model);
