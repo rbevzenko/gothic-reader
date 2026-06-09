@@ -721,6 +721,7 @@ async function processNextJob() {
       db.prepare(`UPDATE jobs SET pages_done = ?, updated_at = unixepoch() WHERE id = ?`).run(pagesDone, job.id);
 
     } catch (err) {
+      console.error(`Job ${job.id} page ${pageNum} error:`, err);
       db.prepare(`UPDATE jobs SET status = 'failed', error = ?, updated_at = unixepoch() WHERE id = ?`).run(err.message, job.id);
       if (job.pdf_path) try { fs.unlinkSync(job.pdf_path); } catch {}
       return;
