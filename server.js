@@ -614,17 +614,29 @@ async function getPdfjsLib() {
   return pdfjsLib;
 }
 
+class NodeCanvasFactory {
+  create(width, height) {
+    const canvas = createCanvas(width, height);
+    return { canvas, context: canvas.getContext('2d') };
+  }
+  reset(data, width, height) {
+    data.canvas.width = width;
+    data.canvas.height = height;
+  }
+  destroy(data) { data.canvas = null; }
+}
+
 async function renderPdfPage(pdfPath, pageNum) {
-  const lib  = await getPdfjsLib();
-  const data = new Uint8Array(fs.readFileSync(pdfPath));
-  const doc  = await lib.getDocument({ data, useSystemFonts: true }).promise;
-  const page = await doc.getPage(pageNum);
+  const lib     = await getPdfjsLib();
+  const data    = new Uint8Array(fs.readFileSync(pdfPath));
+  const factory = new NodeCanvasFactory();
+  const doc     = await lib.getDocument({ data, useSystemFonts: true, canvasFactory: factory }).promise;
+  const page    = await doc.getPage(pageNum);
   const scale    = 2.0;
   const viewport = page.getViewport({ scale });
-  const canvas   = createCanvas(viewport.width, viewport.height);
-  const ctx      = canvas.getContext('2d');
-  await page.render({ canvasContext: ctx, viewport }).promise;
-  return canvas.toBuffer('image/jpeg', { quality: 0.92 }).toString('base64');
+  const canvasData = factory.create(viewport.width, viewport.height);
+  await page.render({ canvasContext: canvasData.context, viewport, canvasFactory: factory }).promise;
+  return canvasData.canvas.toBuffer('image/jpeg', { quality: 0.92 }).toString('base64');
 }
 
 async function processNextJob() {
