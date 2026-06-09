@@ -1,6 +1,6 @@
 #!/bin/bash
 
-DB_PATH="/var/www/fraktur/gothic-reader.db"
+DB_PATH="/var/www/fraktur/gothic_reader.db"
 TG_TOKEN="1236153678:AAEI-4oMo6UAeKH4XQ29SQpJUuNDrvjz-rg"
 TG_CHAT="221519259"
 
