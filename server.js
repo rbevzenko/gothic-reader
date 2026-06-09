@@ -473,7 +473,11 @@ function getProjectPages(req, res) {
     SELECT page_num, result_json, model, created_at FROM project_pages
     WHERE project_id = ? ORDER BY page_num
   `).all(project.id);
-  res.json(pages.map(p => ({ ...p, result_json: JSON.parse(p.result_json) })));
+  res.json(pages.map(p => {
+    let result_json;
+    try { result_json = JSON.parse(p.result_json); } catch { result_json = {}; }
+    return { ...p, result_json };
+  }));
 }
 
 function deleteProjectPage(req, res) {
@@ -528,7 +532,7 @@ function getJob(req, res) {
 
   const completedPages = db.prepare(`
     SELECT page_num, result_json FROM project_pages
-    WHERE project_id = ? AND page_num IN (${JSON.parse(job.pages).join(',')})
+    WHERE project_id = ? AND page_num IN (${(() => { try { return JSON.parse(job.pages).join(','); } catch { return '0'; } })()})
   `).all(job.project_id);
 
   res.json({
