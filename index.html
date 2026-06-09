@@ -1367,6 +1367,7 @@ let totalPages = 0;
 
 // ── Project state ─────────────────────────────────────────────────────────────
 let currentProjectId = null;
+let currentProjectName = null;
 
 function projectAuthHeaders() {
   const token = getSessionToken();
@@ -1393,6 +1394,7 @@ async function createOrLoadProject(filename, totalPages) {
       total_pages: totalPages,
     });
     currentProjectId = proj.id;
+    currentProjectName = proj.name || filename.replace(/\.pdf$/i, '');
     updateProjectBadge(proj);
     return proj;
   } catch { return null; }
@@ -1806,6 +1808,7 @@ async function loadProjectView(projectId) {
     ]);
 
     currentProjectId = projectId;
+    currentProjectName = proj.name || null;
     totalPages = proj.total_pages || 0;
     pdfResults = {};
     pdfThumbEls = {};
@@ -2332,9 +2335,9 @@ function getDownloadSuffix() {
 }
 
 function getDownloadFilename(suffix) {
-  const base = currentPdfFile
-    ? currentPdfFile.name.replace(/\.pdf$/i, '')
-    : 'result';
+  const base = (currentPdfFile ? currentPdfFile.name.replace(/\.pdf$/i, '') : null)
+    || currentProjectName
+    || 'result';
   return `${base}-${suffix}.pdf`;
 }
 
