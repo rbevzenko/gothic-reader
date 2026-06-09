@@ -1356,6 +1356,7 @@ ${latin ? LATIN_FIELD : NO_LATIN_FIELD}
 
 let lastResult = null;
 let pdfDoc = null;
+let currentPdfFile = null;
 let pdfPageImages = {};   // pageNum → { dataUrl, b64 }
 let pdfResults = {};      // pageNum → result object
 let pdfThumbEls = {};     // pageNum → .pdf-thumb element
@@ -1717,6 +1718,7 @@ pdfFileInput.addEventListener('change', e => { if (e.target.files[0]) loadPdf(e.
 async function loadPdf(file) {
   pdfDoc = null; pdfPageImages = {}; pdfResults = {}; pdfThumbEls = {};
   selectedPdfPage = null; currentProjectId = null;
+  currentPdfFile = file;
   document.getElementById('pdf-pages-strip').innerHTML = '';
   document.getElementById('save-pdf-btn').style.display = 'none';
   document.getElementById('columns').style.display = 'none';
@@ -1966,38 +1968,29 @@ async function startServerBatch(pagesToProcess, total, progressFill, progressTex
 
   try {
     progressText.textContent = `0 / ${total}`;
-    progressEta.textContent = 'Creating job…';
+    progressEta.textContent = 'Uploading PDF…';
 
-    // Create job
+    // Upload PDF + job params as multipart form
+    const token = getSessionToken();
+    const formData = new FormData();
+    formData.append('pdf', currentPdfFile);
+    formData.append('project_id', String(currentProjectId));
+    formData.append('pages', JSON.stringify(pagesToProcess));
+    formData.append('mode', getOutputMode());
+    formData.append('lang', getTranslateLang());
+    formData.append('model', getModel());
+    formData.append('latin', document.getElementById('latin-toggle').checked ? '1' : '0');
+
     const jobResp = await fetch(`${WORKER_URL}/api/jobs`, {
       method: 'POST',
-      headers: hostedAuthHeaders(),
-      body: JSON.stringify({
-        project_id: currentProjectId,
-        pages: pagesToProcess,
-        mode: getOutputMode(),
-        lang: getTranslateLang(),
-        model: getModel(),
-        latin: document.getElementById('latin-toggle').checked,
-      }),
+      headers: { 'Authorization': 'Bearer ' + token },
+      body: formData,
     });
     const jobData = await jobResp.json();
     if (!jobData.job_id) throw new Error(jobData.error || 'Failed to create job');
     const job_id = jobData.job_id;
 
-    // Upload page images to the job
-    for (let i = 0; i < pagesToProcess.length; i++) {
-      const pageNum = pagesToProcess[i];
-      progressEta.textContent = `Uploading ${i + 1}/${total}…`;
-      const { b64 } = await getPdfPageImage(pageNum);
-      await fetch(`${WORKER_URL}/api/jobs/${job_id}/images`, {
-        method: 'POST',
-        headers: hostedAuthHeaders(),
-        body: JSON.stringify({ page_num: pageNum, image_data: b64 }),
-      });
-    }
-
-    progressEta.textContent = t('eta_calculating') || 'Processing…';
+    progressEta.textContent = 'Processing on server… You can switch tabs.';
 
     // Store cancel handler
     let cancelled = false;

@@ -26,8 +26,12 @@ import Database from 'better-sqlite3';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import path from 'path';
+import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
+import multer from 'multer';
+import { createCanvas } from 'canvas';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -133,6 +137,7 @@ db.exec(`
     status      TEXT    NOT NULL DEFAULT 'pending',
     pages_done  INTEGER NOT NULL DEFAULT 0,
     pages_total INTEGER NOT NULL DEFAULT 0,
+    pdf_path    TEXT,
     error       TEXT,
     created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
     updated_at  INTEGER NOT NULL DEFAULT (unixepoch())
@@ -280,9 +285,10 @@ app.get('/api/projects/:id/pages',          requireAuth, getProjectPages);
 app.delete('/api/projects/:id/pages/:num',  requireAuth, deleteProjectPage);
 
 // Jobs (server-side processing queue)
-app.post('/api/jobs',      requireAuth, createJob);
-app.get('/api/jobs/:id',   requireAuth, getJob);
-app.delete('/api/jobs/:id',requireAuth, cancelJob);
+const upload = multer({ dest: os.tmpdir(), limits: { fileSize: 100 * 1024 * 1024 } });
+app.post('/api/jobs',           requireAuth, upload.single('pdf'), createJob);
+app.get('/api/jobs/:id',        requireAuth, getJob);
+app.delete('/api/jobs/:id',     requireAuth, cancelJob);
 
 // ── Admin routes ──────────────────────────────────────────────────────────────
 
@@ -478,21 +484,34 @@ function deleteProjectPage(req, res) {
 // ── Job handlers ──────────────────────────────────────────────────────────────
 
 function createJob(req, res) {
-  const { project_id, pages, mode, lang, model, latin } = req.body;
+  const pages  = req.body.pages ? JSON.parse(req.body.pages) : null;
+  const { project_id, mode, lang, model, latin } = req.body;
+
   if (!project_id || !pages || !Array.isArray(pages) || pages.length === 0) {
+    if (req.file) fs.unlinkSync(req.file.path);
     return res.status(400).json({ error: 'project_id and pages[] required' });
   }
+  if (!req.file) {
+    return res.status(400).json({ error: 'PDF file required' });
+  }
+
   const project = db.prepare(`SELECT * FROM projects WHERE id = ? AND uid = ?`).get(project_id, req.uid);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!project) {
+    fs.unlinkSync(req.file.path);
+    return res.status(404).json({ error: 'Project not found' });
+  }
 
   const credits = fetchBalance(req.uid);
-  if (credits < pages.length) return res.status(402).json({ error: 'no_credits' });
+  if (credits < pages.length) {
+    fs.unlinkSync(req.file.path);
+    return res.status(402).json({ error: 'no_credits' });
+  }
 
   const result = db.prepare(`
-    INSERT INTO jobs (uid, project_id, pages, mode, lang, model, latin, pages_total)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO jobs (uid, project_id, pages, mode, lang, model, latin, pages_total, pdf_path)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(req.uid, project_id, JSON.stringify(pages), mode || 'modernize', lang || 'русский',
-         model || 'claude-haiku-4-5-20251001', latin ? 1 : 0, pages.length);
+         model || 'claude-haiku-4-5-20251001', latin ? 1 : 0, pages.length, req.file.path);
 
   res.json({ job_id: result.lastInsertRowid });
 }
@@ -583,6 +602,27 @@ ${latin ? LATIN_FIELD : NO_LATIN_FIELD}
 
 // ── Job worker ────────────────────────────────────────────────────────────────
 
+let pdfjsLib = null;
+async function getPdfjsLib() {
+  if (!pdfjsLib) {
+    pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  }
+  return pdfjsLib;
+}
+
+async function renderPdfPage(pdfPath, pageNum) {
+  const lib  = await getPdfjsLib();
+  const data = new Uint8Array(fs.readFileSync(pdfPath));
+  const doc  = await lib.getDocument({ data, useSystemFonts: true }).promise;
+  const page = await doc.getPage(pageNum);
+  const scale    = 2.0;
+  const viewport = page.getViewport({ scale });
+  const canvas   = createCanvas(viewport.width, viewport.height);
+  const ctx      = canvas.getContext('2d');
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  return canvas.toBuffer('image/jpeg', { quality: 0.92 }).toString('base64');
+}
+
 async function processNextJob() {
   const job = db.prepare(`SELECT * FROM jobs WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1`).get();
   if (!job) return;
@@ -591,20 +631,23 @@ async function processNextJob() {
 
   const pages = JSON.parse(job.pages);
   let pagesDone = 0;
+  const prompt = getPrompts(job.mode, job.lang, job.latin === 1);
 
   for (const pageNum of pages) {
-    // Check if job was cancelled
     const current = db.prepare(`SELECT status FROM jobs WHERE id = ?`).get(job.id);
-    if (current.status === 'cancelled') return;
-
-    // Check credits
-    const credits = fetchBalance(job.uid);
-    if (credits <= 0) {
-      db.prepare(`UPDATE jobs SET status = 'failed', error = 'no_credits', updated_at = unixepoch() WHERE id = ?`).run(job.id);
+    if (current.status === 'cancelled') {
+      if (job.pdf_path) try { fs.unlinkSync(job.pdf_path); } catch {}
       return;
     }
 
-    // Get page image from project_pages or skip if already done
+    const credits = fetchBalance(job.uid);
+    if (credits <= 0) {
+      db.prepare(`UPDATE jobs SET status = 'failed', error = 'no_credits', updated_at = unixepoch() WHERE id = ?`).run(job.id);
+      if (job.pdf_path) try { fs.unlinkSync(job.pdf_path); } catch {}
+      return;
+    }
+
+    // Skip already processed pages
     const existing = db.prepare(`SELECT id FROM project_pages WHERE project_id = ? AND page_num = ?`).get(job.project_id, pageNum);
     if (existing) {
       pagesDone++;
@@ -613,16 +656,8 @@ async function processNextJob() {
     }
 
     try {
-      // Build prompt based on mode
-      const prompt = getPrompts(job.mode, job.lang, job.latin === 1);
-
-      // Get page image data from job metadata
-      const imgData = db.prepare(`SELECT image_data FROM job_page_images WHERE job_id = ? AND page_num = ?`).get(job.id, pageNum);
-      if (!imgData) {
-        pagesDone++;
-        db.prepare(`UPDATE jobs SET pages_done = ?, updated_at = unixepoch() WHERE id = ?`).run(pagesDone, job.id);
-        continue;
-      }
+      // Render PDF page on server
+      const b64 = await renderPdfPage(job.pdf_path, pageNum);
 
       saveBalance(job.uid, credits - 1);
 
@@ -640,7 +675,7 @@ async function processNextJob() {
           messages: [{
             role: 'user',
             content: [
-              { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: imgData.image_data } },
+              { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
               { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' },
             ],
           }],
@@ -649,25 +684,21 @@ async function processNextJob() {
 
       const data = await upstream.json();
       if (!upstream.ok) {
-        saveBalance(job.uid, credits); // refund
+        saveBalance(job.uid, credits);
         throw new Error(data.error?.message || 'Claude API error');
       }
 
       const inputTokens  = data.usage?.input_tokens  || 0;
       const outputTokens = data.usage?.output_tokens || 0;
-      const costUsd      = calcCost(job.model, inputTokens, outputTokens);
-      stmtLogRequest.run(job.uid, job.model, inputTokens, outputTokens, costUsd);
+      stmtLogRequest.run(job.uid, job.model, inputTokens, outputTokens, calcCost(job.model, inputTokens, outputTokens));
 
       const raw = (data.content || []).map(b => b.text || '').join('');
       const m   = raw.match(/\{[\s\S]*\}/);
       if (!m) throw new Error('No JSON in response');
       const result = JSON.parse(m[0]);
 
-      db.prepare(`
-        INSERT OR REPLACE INTO project_pages (project_id, page_num, result_json, model)
-        VALUES (?, ?, ?, ?)
-      `).run(job.project_id, pageNum, JSON.stringify(result), job.model);
-
+      db.prepare(`INSERT OR REPLACE INTO project_pages (project_id, page_num, result_json, model) VALUES (?, ?, ?, ?)`)
+        .run(job.project_id, pageNum, JSON.stringify(result), job.model);
       db.prepare(`UPDATE projects SET updated_at = unixepoch() WHERE id = ?`).run(job.project_id);
 
       pagesDone++;
@@ -675,13 +706,13 @@ async function processNextJob() {
 
     } catch (err) {
       db.prepare(`UPDATE jobs SET status = 'failed', error = ?, updated_at = unixepoch() WHERE id = ?`).run(err.message, job.id);
+      if (job.pdf_path) try { fs.unlinkSync(job.pdf_path); } catch {}
       return;
     }
   }
 
   db.prepare(`UPDATE jobs SET status = 'done', updated_at = unixepoch() WHERE id = ?`).run(job.id);
-  // Clean up page images
-  db.prepare(`DELETE FROM job_page_images WHERE job_id = ?`).run(job.id);
+  if (job.pdf_path) try { fs.unlinkSync(job.pdf_path); } catch {}
 }
 
 // Poll for pending jobs every 3 seconds
