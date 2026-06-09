@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:wght@400;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -2339,57 +2339,19 @@ function getDownloadFilename(suffix) {
 }
 
 function generateAndDownloadPdf(pages, filename) {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  const marginX = 20, marginTop = 20, marginBottom = 20;
-  const pageW = doc.internal.pageSize.getWidth();
-  const pageH = doc.internal.pageSize.getHeight();
-  const maxW = pageW - marginX * 2;
-  let y = marginTop;
+  const html = buildPdfHtml(pages, getDownloadSuffix());
+  const container = document.createElement('div');
+  container.innerHTML = html;
+  const body = container.querySelector('body') || container;
 
-  function addWrappedText(text, fontSize, fontStyle, lineSpacing) {
-    doc.setFontSize(fontSize);
-    doc.setFont('helvetica', fontStyle);
-    const lines = doc.splitTextToSize(text, maxW);
-    lines.forEach(line => {
-      if (y + lineSpacing > pageH - marginBottom) {
-        doc.addPage();
-        y = marginTop;
-      }
-      doc.text(line, marginX, y);
-      y += lineSpacing;
-    });
-  }
-
-  pages.forEach(({ num, result: r }, i) => {
-    if (i > 0) { doc.addPage(); y = marginTop; }
-    if (num != null) {
-      doc.setFontSize(8);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(150);
-      doc.text(`Page ${num}`, marginX, y);
-      doc.setTextColor(0);
-      y += 6;
-    }
-    if (r.title) {
-      addWrappedText(r.title, 14, 'bold', 8);
-      y += 2;
-    }
-    (r.paragraphs || []).forEach(p => {
-      addWrappedText(p, 11, 'normal', 6);
-      y += 2;
-    });
-    if (r.latin_fragments?.length) {
-      y += 2;
-      r.latin_fragments.forEach(l => {
-        addWrappedText(l.original, 9, 'italic', 5);
-        if (l.translation) addWrappedText(l.translation, 10, 'normal', 5);
-        y += 1;
-      });
-    }
-  });
-
-  doc.save(filename);
+  html2pdf().set({
+    margin: [20, 20, 20, 20],
+    filename,
+    image: { type: 'jpeg', quality: 0.95 },
+    html2canvas: { scale: 2, useCORS: true },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    pagebreak: { mode: 'css', before: '.page-block' },
+  }).from(body).save();
 }
 
 function savePdf() {
