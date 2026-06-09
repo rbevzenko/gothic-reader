@@ -514,7 +514,7 @@ function projectHTML(p) {
       <div class="proj-icon">📄</div>
       <div class="proj-info">
         <div class="proj-name" title="${escHtml(p.filename)}">${escHtml(p.name)}</div>
-        <div class="proj-meta">${done} of ${total} pages processed · ${date}</div>
+        <div class="proj-meta">${done} of ${total} pages processed · ${date}${p.last_job_sec ? ' · ⏱ ' + fmtDuration(p.last_job_sec) : ''}</div>
       </div>
       <div class="proj-progress">
         <div class="prog-bar"><div class="prog-fill" style="width:${pct}%"></div></div>
@@ -554,6 +554,12 @@ async function apiFetch(url, method = 'GET', body = null) {
 
 function fmtDate(ts) {
   return ts ? new Date(ts * 1000).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+}
+
+function fmtDuration(sec) {
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return s > 0 ? `${m}m ${s}s` : `${m}m`;
 }
 
 function shortModel(m) {

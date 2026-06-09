@@ -404,7 +404,10 @@ async function handleChangePassword(req, res) {
 function listProjects(req, res) {
   const rows = db.prepare(`
     SELECT p.*,
-      (SELECT COUNT(*) FROM project_pages WHERE project_id = p.id) as pages_done
+      (SELECT COUNT(*) FROM project_pages WHERE project_id = p.id) as pages_done,
+      (SELECT (j.updated_at - j.created_at) FROM jobs j
+       WHERE j.project_id = p.id AND j.status = 'done'
+       ORDER BY j.updated_at DESC LIMIT 1) as last_job_sec
     FROM projects p WHERE p.uid = ? ORDER BY p.updated_at DESC
   `).all(req.uid);
   res.json(rows);
