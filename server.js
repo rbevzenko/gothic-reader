@@ -584,6 +584,7 @@ Regeln:
 5. FUßNOTEN PFLICHT. Fußnoten am Seitenende (markiert mit Ziffern 1), 2), Sternchen * usw.) vollständig modernisieren und als eigene Elemente in paragraphs aufnehmen. Keine Fußnote auslassen.
 5. ${latin ? 'Lateinische Fragmente separat mit Übersetzung und Quelle auflisten.' : 'latin_fragments immer als leeres Array zurückgeben.'}
 6. Antworte NUR mit gültigem JSON — kein Markdown, keine Präambel.
+7. WICHTIG: Alle Anführungszeichen innerhalb von Strings müssen escaped werden: \" — niemals rohe " innerhalb eines JSON-String-Werts.
 
 {
   "title": "Seitentitel auf modernem Deutsch, oder leerer String",
@@ -601,6 +602,7 @@ ${latin ? LATIN_FIELD : NO_LATIN_FIELD}
 4. Каждый абзац оригинала — отдельный элемент массива.
 5. СНОСКИ ОБЯЗАТЕЛЬНЫ. Сноски в нижней части страницы (обозначены цифрами 1), 2), звёздочками * и т.п.) — переводи их полностью и включай в массив paragraphs как отдельные элементы. Не пропускай ни одну сноску.
 6. Отвечай ТОЛЬКО валидным JSON — без markdown, без преамбулы.
+7. ВАЖНО: все кавычки внутри строк JSON должны быть экранированы: \" — никогда не используй голые " внутри значения строки.
 
 {
   "title": "заголовок на ${lang}, или пустая строка",
