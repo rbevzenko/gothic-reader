@@ -2347,8 +2347,7 @@ function generateAndDownloadPdf(pages, filename) {
   const win = window.open('', '_blank');
   win.document.write(html);
   win.document.close();
-  win.addEventListener('load', () => setTimeout(() => win.print(), 400));
-  setTimeout(() => { try { win.print(); } catch(_) {} }, 800);
+  win.addEventListener('load', () => setTimeout(() => win.print(), 300));
 }
 
 function savePdf() {
