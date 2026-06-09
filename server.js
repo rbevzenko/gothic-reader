@@ -121,11 +121,37 @@ db.exec(`
     value TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS jobs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    uid         TEXT    NOT NULL,
+    project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    pages       TEXT    NOT NULL,
+    mode        TEXT    NOT NULL DEFAULT 'modernize',
+    lang        TEXT    NOT NULL DEFAULT 'русский',
+    model       TEXT    NOT NULL DEFAULT 'claude-haiku-4-5-20251001',
+    latin       INTEGER NOT NULL DEFAULT 0,
+    status      TEXT    NOT NULL DEFAULT 'pending',
+    pages_done  INTEGER NOT NULL DEFAULT 0,
+    pages_total INTEGER NOT NULL DEFAULT 0,
+    error       TEXT,
+    created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at  INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+
   CREATE INDEX IF NOT EXISTS idx_requests_uid ON requests(uid);
   CREATE INDEX IF NOT EXISTS idx_requests_ts  ON requests(created_at);
   CREATE INDEX IF NOT EXISTS idx_payments_uid ON payments(uid);
   CREATE INDEX IF NOT EXISTS idx_payments_ts  ON payments(created_at);
   CREATE INDEX IF NOT EXISTS idx_sessions_uid ON sessions(uid);
+  CREATE INDEX IF NOT EXISTS idx_jobs_uid     ON jobs(uid);
+  CREATE INDEX IF NOT EXISTS idx_jobs_status  ON jobs(status);
+
+  CREATE TABLE IF NOT EXISTS job_page_images (
+    job_id     INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    page_num   INTEGER NOT NULL,
+    image_data TEXT    NOT NULL,
+    PRIMARY KEY (job_id, page_num)
+  );
 `);
 
 // Prepared statements — credits
@@ -252,6 +278,11 @@ app.put('/api/projects/:id',                requireAuth, updateProject);
 app.post('/api/projects/:id/pages',         requireAuth, saveProjectPage);
 app.get('/api/projects/:id/pages',          requireAuth, getProjectPages);
 app.delete('/api/projects/:id/pages/:num',  requireAuth, deleteProjectPage);
+
+// Jobs (server-side processing queue)
+app.post('/api/jobs',      requireAuth, createJob);
+app.get('/api/jobs/:id',   requireAuth, getJob);
+app.delete('/api/jobs/:id',requireAuth, cancelJob);
 
 // ── Admin routes ──────────────────────────────────────────────────────────────
 
@@ -440,6 +471,220 @@ function deleteProjectPage(req, res) {
   db.prepare(`DELETE FROM project_pages WHERE project_id = ? AND page_num = ?`).run(project.id, req.params.num);
   res.json({ ok: true });
 }
+
+// ── Job handlers ──────────────────────────────────────────────────────────────
+
+function createJob(req, res) {
+  const { project_id, pages, mode, lang, model, latin } = req.body;
+  if (!project_id || !pages || !Array.isArray(pages) || pages.length === 0) {
+    return res.status(400).json({ error: 'project_id and pages[] required' });
+  }
+  const project = db.prepare(`SELECT * FROM projects WHERE id = ? AND uid = ?`).get(project_id, req.uid);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+
+  const credits = fetchBalance(req.uid);
+  if (credits < pages.length) return res.status(402).json({ error: 'no_credits' });
+
+  const result = db.prepare(`
+    INSERT INTO jobs (uid, project_id, pages, mode, lang, model, latin, pages_total)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(req.uid, project_id, JSON.stringify(pages), mode || 'modernize', lang || 'русский',
+         model || 'claude-haiku-4-5-20251001', latin ? 1 : 0, pages.length);
+
+  res.json({ job_id: result.lastInsertRowid });
+}
+
+function getJob(req, res) {
+  const job = db.prepare(`SELECT * FROM jobs WHERE id = ? AND uid = ?`).get(req.params.id, req.uid);
+  if (!job) return res.status(404).json({ error: 'Not found' });
+
+  const completedPages = db.prepare(`
+    SELECT page_num, result_json FROM project_pages
+    WHERE project_id = ? AND page_num IN (${JSON.parse(job.pages).join(',')})
+  `).all(job.project_id);
+
+  res.json({
+    id: job.id,
+    status: job.status,
+    pages_done: job.pages_done,
+    pages_total: job.pages_total,
+    error: job.error,
+    completed_pages: completedPages,
+  });
+}
+
+function cancelJob(req, res) {
+  const job = db.prepare(`SELECT * FROM jobs WHERE id = ? AND uid = ?`).get(req.params.id, req.uid);
+  if (!job) return res.status(404).json({ error: 'Not found' });
+  if (job.status === 'pending' || job.status === 'running') {
+    db.prepare(`UPDATE jobs SET status = 'cancelled', updated_at = unixepoch() WHERE id = ?`).run(job.id);
+  }
+  res.json({ ok: true });
+}
+
+// ── Job image upload ──────────────────────────────────────────────────────────
+
+app.post('/api/jobs/:id/images', requireAuth, (req, res) => {
+  const job = db.prepare(`SELECT * FROM jobs WHERE id = ? AND uid = ?`).get(req.params.id, req.uid);
+  if (!job) return res.status(404).json({ error: 'Not found' });
+  const { page_num, image_data } = req.body;
+  if (!page_num || !image_data) return res.status(400).json({ error: 'page_num and image_data required' });
+  db.prepare(`INSERT OR REPLACE INTO job_page_images (job_id, page_num, image_data) VALUES (?, ?, ?)`)
+    .run(job.id, page_num, image_data);
+  res.json({ ok: true });
+});
+
+// ── Prompts ───────────────────────────────────────────────────────────────────
+
+const LATIN_FIELD = `  "latin_fragments": [\n    { "original": "...", "translation": "...", "source": "..." }\n  ]`;
+const NO_LATIN_FIELD = `  "latin_fragments": []`;
+
+function getPrompts(mode, lang, latin) {
+  if (mode === 'modernize') {
+    return `Du bist Experte für deutsche Rechtsliteratur des 19. Jahrhunderts in Frakturschrift.
+Deine Aufgabe: Lies den Text aus dem Bild (Frakturschrift) und gib ihn in modernem Deutsch wieder.
+
+Regeln:
+1. Lies den Frakturtext genau, beachte archaische Orthographie.
+2. Gib den Text in moderner deutscher Rechtschreibung wieder: ſ→s, Majuskelregeln modernisieren, veraltete Schreibweisen aktualisieren.
+3. Lateinische Passagen bleiben im Original.
+4. Jeder Absatz des Originals = ein separates Element im Array.
+5. FUßNOTEN PFLICHT. Fußnoten am Seitenende (markiert mit Ziffern 1), 2), Sternchen * usw.) vollständig modernisieren und als eigene Elemente in paragraphs aufnehmen. Keine Fußnote auslassen.
+5. ${latin ? 'Lateinische Fragmente separat mit Übersetzung und Quelle auflisten.' : 'latin_fragments immer als leeres Array zurückgeben.'}
+6. Antworte NUR mit gültigem JSON — kein Markdown, keine Präambel.
+
+{
+  "title": "Seitentitel auf modernem Deutsch, oder leerer String",
+  "paragraphs": ["erster Absatz", "zweiter Absatz"],
+${latin ? LATIN_FIELD : NO_LATIN_FIELD}
+}`;
+  } else {
+    return `Ты — специалист по немецкой юридической литературе XIX века.
+Читаешь тексты, набранные готическим шрифтом (Fraktur), переводишь на ${lang}.
+
+Правила:
+1. Основной текст — немецкий в Fraktur. Читай точно, учитывая архаичную орфографию.
+2. ${latin ? 'Латинские слова обычно набраны антиквой — выделяй их отдельно.' : 'latin_fragments всегда возвращай пустым массивом.'}
+3. ${latin ? 'Для латинских фрагментов: дай перевод + источник.' : ''}
+4. Каждый абзац оригинала — отдельный элемент массива.
+5. СНОСКИ ОБЯЗАТЕЛЬНЫ. Сноски в нижней части страницы (обозначены цифрами 1), 2), звёздочками * и т.п.) — переводи их полностью и включай в массив paragraphs как отдельные элементы. Не пропускай ни одну сноску.
+6. Отвечай ТОЛЬКО валидным JSON — без markdown, без преамбулы.
+
+{
+  "title": "заголовок на ${lang}, или пустая строка",
+  "paragraphs": ["перевод первого абзаца", "перевод второго абзаца"],
+${latin ? LATIN_FIELD : NO_LATIN_FIELD}
+}`;
+  }
+}
+
+// ── Job worker ────────────────────────────────────────────────────────────────
+
+async function processNextJob() {
+  const job = db.prepare(`SELECT * FROM jobs WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1`).get();
+  if (!job) return;
+
+  db.prepare(`UPDATE jobs SET status = 'running', updated_at = unixepoch() WHERE id = ?`).run(job.id);
+
+  const pages = JSON.parse(job.pages);
+  let pagesDone = 0;
+
+  for (const pageNum of pages) {
+    // Check if job was cancelled
+    const current = db.prepare(`SELECT status FROM jobs WHERE id = ?`).get(job.id);
+    if (current.status === 'cancelled') return;
+
+    // Check credits
+    const credits = fetchBalance(job.uid);
+    if (credits <= 0) {
+      db.prepare(`UPDATE jobs SET status = 'failed', error = 'no_credits', updated_at = unixepoch() WHERE id = ?`).run(job.id);
+      return;
+    }
+
+    // Get page image from project_pages or skip if already done
+    const existing = db.prepare(`SELECT id FROM project_pages WHERE project_id = ? AND page_num = ?`).get(job.project_id, pageNum);
+    if (existing) {
+      pagesDone++;
+      db.prepare(`UPDATE jobs SET pages_done = ?, updated_at = unixepoch() WHERE id = ?`).run(pagesDone, job.id);
+      continue;
+    }
+
+    try {
+      // Build prompt based on mode
+      const prompt = getPrompts(job.mode, job.lang, job.latin === 1);
+
+      // Get page image data from job metadata
+      const imgData = db.prepare(`SELECT image_data FROM job_page_images WHERE job_id = ? AND page_num = ?`).get(job.id, pageNum);
+      if (!imgData) {
+        pagesDone++;
+        db.prepare(`UPDATE jobs SET pages_done = ?, updated_at = unixepoch() WHERE id = ?`).run(pagesDone, job.id);
+        continue;
+      }
+
+      saveBalance(job.uid, credits - 1);
+
+      const upstream = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: job.model,
+          max_tokens: 4096,
+          system: prompt,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: imgData.image_data } },
+              { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' },
+            ],
+          }],
+        }),
+      });
+
+      const data = await upstream.json();
+      if (!upstream.ok) {
+        saveBalance(job.uid, credits); // refund
+        throw new Error(data.error?.message || 'Claude API error');
+      }
+
+      const inputTokens  = data.usage?.input_tokens  || 0;
+      const outputTokens = data.usage?.output_tokens || 0;
+      const costUsd      = calcCost(job.model, inputTokens, outputTokens);
+      stmtLogRequest.run(job.uid, job.model, inputTokens, outputTokens, costUsd);
+
+      const raw = (data.content || []).map(b => b.text || '').join('');
+      const m   = raw.match(/\{[\s\S]*\}/);
+      if (!m) throw new Error('No JSON in response');
+      const result = JSON.parse(m[0]);
+
+      db.prepare(`
+        INSERT OR REPLACE INTO project_pages (project_id, page_num, result_json, model)
+        VALUES (?, ?, ?, ?)
+      `).run(job.project_id, pageNum, JSON.stringify(result), job.model);
+
+      db.prepare(`UPDATE projects SET updated_at = unixepoch() WHERE id = ?`).run(job.project_id);
+
+      pagesDone++;
+      db.prepare(`UPDATE jobs SET pages_done = ?, updated_at = unixepoch() WHERE id = ?`).run(pagesDone, job.id);
+
+    } catch (err) {
+      db.prepare(`UPDATE jobs SET status = 'failed', error = ?, updated_at = unixepoch() WHERE id = ?`).run(err.message, job.id);
+      return;
+    }
+  }
+
+  db.prepare(`UPDATE jobs SET status = 'done', updated_at = unixepoch() WHERE id = ?`).run(job.id);
+  // Clean up page images
+  db.prepare(`DELETE FROM job_page_images WHERE job_id = ?`).run(job.id);
+}
+
+// Poll for pending jobs every 3 seconds
+setInterval(async () => {
+  try { await processNextJob(); } catch (e) { console.error('Job worker error:', e); }
+}, 3000);
 
 // ── Public handlers ───────────────────────────────────────────────────────────
 

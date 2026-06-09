@@ -1961,6 +1961,110 @@ function formatEta(seconds) {
   return m > 0 ? t('eta_hr_m', { h, m }) : t('eta_hr', { h });
 }
 
+async function startServerBatch(pagesToProcess, total, progressFill, progressText, progressEta, processBtn) {
+  const cancelBtn = document.getElementById('cancel-btn');
+
+  try {
+    progressText.textContent = `0 / ${total}`;
+    progressEta.textContent = 'Creating job…';
+
+    // Create job
+    const jobResp = await fetch(`${WORKER_URL}/api/jobs`, {
+      method: 'POST',
+      headers: hostedAuthHeaders(),
+      body: JSON.stringify({
+        project_id: currentProjectId,
+        pages: pagesToProcess,
+        mode: getOutputMode(),
+        lang: getTranslateLang(),
+        model: getModel(),
+        latin: document.getElementById('latin-toggle').checked,
+      }),
+    });
+    const jobData = await jobResp.json();
+    if (!jobData.job_id) throw new Error(jobData.error || 'Failed to create job');
+    const job_id = jobData.job_id;
+
+    // Upload page images to the job
+    for (let i = 0; i < pagesToProcess.length; i++) {
+      const pageNum = pagesToProcess[i];
+      progressEta.textContent = `Uploading ${i + 1}/${total}…`;
+      const { b64 } = await getPdfPageImage(pageNum);
+      await fetch(`${WORKER_URL}/api/jobs/${job_id}/images`, {
+        method: 'POST',
+        headers: hostedAuthHeaders(),
+        body: JSON.stringify({ page_num: pageNum, image_data: b64 }),
+      });
+    }
+
+    progressEta.textContent = t('eta_calculating') || 'Processing…';
+
+    // Store cancel handler
+    let cancelled = false;
+    const cancelHandler = async () => {
+      cancelled = true;
+      await fetch(`${WORKER_URL}/api/jobs/${job_id}`, { method: 'DELETE', headers: hostedAuthHeaders() });
+    };
+    cancelBtn.addEventListener('click', cancelHandler, { once: true });
+
+    // Poll for results
+    const seen = new Set();
+    while (!cancelled) {
+      await new Promise(r => setTimeout(r, 3000));
+      if (batchCancelled || cancelled) break;
+
+      const r = await fetch(`${WORKER_URL}/api/jobs/${job_id}`, { headers: hostedAuthHeaders() });
+      const job = await r.json();
+
+      // Show newly completed pages
+      for (const p of (job.completed_pages || [])) {
+        if (seen.has(p.page_num)) continue;
+        seen.add(p.page_num);
+        const result = typeof p.result_json === 'string' ? JSON.parse(p.result_json) : p.result_json;
+        pdfResults[p.page_num] = result;
+        pdfThumbEls[p.page_num]?.classList.add('done');
+        if (selectedPdfPage === p.page_num || (!selectedPdfPage && pagesToProcess[0] === p.page_num)) {
+          selectedPdfPage = p.page_num;
+          lastResult = result;
+          render(result);
+          document.getElementById('copy-btn').style.display = 'block';
+          document.getElementById('reprocess-btn').style.display = 'block';
+          document.getElementById('page-save-btn').style.display = 'block';
+          updateNavButtons();
+        }
+        updateCreditsBadge((await fetchCredits()) ?? 0);
+      }
+
+      done = job.pages_done;
+      progressFill.style.width = `${(done / total) * 100}%`;
+      progressText.textContent = `${done} / ${total}`;
+      updateProjectBadge({ pages_done: done, total_pages: totalPages });
+
+      if (job.status === 'done') {
+        progressText.textContent = t('batch_done', { d: done, t: total });
+        progressEta.textContent = '';
+        break;
+      }
+      if (job.status === 'failed') {
+        progressText.textContent = `Error: ${job.error || 'failed'}`;
+        progressEta.textContent = '';
+        break;
+      }
+      if (job.status === 'cancelled') break;
+
+      const remaining = (total - done) * 5;
+      progressEta.textContent = t('eta_remaining', { s: formatEta(remaining) }) || `~${formatEta(remaining)} left`;
+    }
+
+  } catch (err) {
+    progressText.textContent = `Error: ${err.message}`;
+  }
+
+  progressFill.style.width = '100%';
+  processBtn.disabled = false;
+  checkSavePdfBtn();
+}
+
 async function startBatch() {
   batchCancelled = false;
   const progressBar  = document.getElementById('batch-progress');
@@ -1977,6 +2081,12 @@ async function startBatch() {
   const pagesToProcess = getSelectedPages().filter(i => !pdfResults[i]);
   const total = pagesToProcess.length;
   if (total === 0) { processBtn.disabled = false; return; }
+
+  // Use server-side queue if logged in and project exists
+  if (getSessionToken() && currentProjectId) {
+    await startServerBatch(pagesToProcess, total, progressFill, progressText, progressEta, processBtn);
+    return;
+  }
 
   const times = [];
 
