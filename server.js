@@ -615,8 +615,12 @@ async function renderPdfPage(pdfPath, pageNum) {
     '-f', String(pageNum), '-l', String(pageNum),
     pdfPath, outPrefix
   ]);
-  const padded = String(pageNum).padStart(6, '0');
-  const outFile = `${outPrefix}-${padded}.jpg`;
+  // pdftoppm zero-padding varies by version; find the actual output file
+  const dir = path.dirname(outPrefix);
+  const base = path.basename(outPrefix);
+  const files = fs.readdirSync(dir).filter(f => f.startsWith(base) && f.endsWith('.jpg'));
+  if (!files.length) throw new Error(`pdftoppm produced no output for page ${pageNum}`);
+  const outFile = path.join(dir, files[0]);
   const b64 = fs.readFileSync(outFile).toString('base64');
   fs.unlinkSync(outFile);
   return b64;
