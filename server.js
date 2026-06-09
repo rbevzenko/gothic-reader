@@ -31,7 +31,9 @@ import os from 'os';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
 import multer from 'multer';
-import { createCanvas } from 'canvas';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+const execFileAsync = promisify(execFile);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -606,46 +608,18 @@ ${latin ? LATIN_FIELD : NO_LATIN_FIELD}
 
 // ── Job worker ────────────────────────────────────────────────────────────────
 
-let pdfjsLib = null;
-async function getPdfjsLib() {
-  if (!pdfjsLib) {
-    // Polyfill HTMLImageElement for pdfjs inline image rendering in Node.js
-    const canvasModule = await import('canvas');
-    if (!globalThis.Image) globalThis.Image = canvasModule.Image;
-    if (!globalThis.document) globalThis.document = {
-      createElement: (tag) => {
-        if (tag === 'canvas') return createCanvas(1, 1);
-        return {};
-      }
-    };
-    pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  }
-  return pdfjsLib;
-}
-
-class NodeCanvasFactory {
-  create(width, height) {
-    const canvas = createCanvas(width, height);
-    return { canvas, context: canvas.getContext('2d') };
-  }
-  reset(data, width, height) {
-    data.canvas.width = width;
-    data.canvas.height = height;
-  }
-  destroy(data) { data.canvas = null; }
-}
-
 async function renderPdfPage(pdfPath, pageNum) {
-  const lib     = await getPdfjsLib();
-  const data    = new Uint8Array(fs.readFileSync(pdfPath));
-  const factory = new NodeCanvasFactory();
-  const doc     = await lib.getDocument({ data, useSystemFonts: true, canvasFactory: factory }).promise;
-  const page    = await doc.getPage(pageNum);
-  const scale    = 2.0;
-  const viewport = page.getViewport({ scale });
-  const canvasData = factory.create(viewport.width, viewport.height);
-  await page.render({ canvasContext: canvasData.context, viewport, canvasFactory: factory }).promise;
-  return canvasData.canvas.toBuffer('image/jpeg', { quality: 0.92 }).toString('base64');
+  const outPrefix = pdfPath + `_p${pageNum}`;
+  await execFileAsync('pdftoppm', [
+    '-jpeg', '-r', '150',
+    '-f', String(pageNum), '-l', String(pageNum),
+    pdfPath, outPrefix
+  ]);
+  const padded = String(pageNum).padStart(6, '0');
+  const outFile = `${outPrefix}-${padded}.jpg`;
+  const b64 = fs.readFileSync(outFile).toString('base64');
+  fs.unlinkSync(outFile);
+  return b64;
 }
 
 async function processNextJob() {
