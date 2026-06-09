@@ -8,7 +8,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:wght@400;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -2343,18 +2342,12 @@ function getDownloadFilename(suffix) {
 
 function generateAndDownloadPdf(pages, filename) {
   const html = buildPdfHtml(pages, getDownloadSuffix());
-  const container = document.createElement('div');
-  container.innerHTML = html;
-  const body = container.querySelector('body') || container;
-
-  html2pdf().set({
-    margin: [20, 20, 20, 20],
-    filename,
-    image: { type: 'jpeg', quality: 0.95 },
-    html2canvas: { scale: 2, useCORS: true },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    pagebreak: { mode: 'css', before: '.page-block' },
-  }).from(body).save();
+  const win = window.open('', '_blank');
+  win.document.title = filename.replace(/\.pdf$/i, '');
+  win.document.write(html);
+  win.document.close();
+  win.addEventListener('load', () => setTimeout(() => win.print(), 400));
+  setTimeout(() => { try { win.print(); } catch(_) {} }, 800);
 }
 
 function savePdf() {
