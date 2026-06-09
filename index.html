@@ -2283,7 +2283,16 @@ function buildPdfHtml(pages, lang, docTitle) {
 <meta charset="UTF-8">
 <title>${escHtml(title)}</title>
 <style>
-  @page { margin: 2.5cm; size: A4; }
+  @page {
+    margin: 2.5cm 2.5cm 3cm 2.5cm;
+    size: A4;
+    @bottom-center {
+      content: "Gothic Reader · fraktur.app";
+      font-size: 8pt;
+      color: #aaa;
+      font-family: Georgia, serif;
+    }
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Georgia, 'Times New Roman', serif; font-size: 11pt; line-height: 1.8; color: #111; }
   .page-block { page-break-after: always; padding-bottom: 1cm; }
