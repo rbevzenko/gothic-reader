@@ -671,10 +671,10 @@ async function processNextJob() {
 
       // Call Claude with exponential backoff retry on overload
       let upstream, data;
-      for (let attempt = 0; attempt < 6; attempt++) {
+      for (let attempt = 0; attempt < 10; attempt++) {
         if (attempt > 0) {
-          const delay = Math.min(10000 * Math.pow(2, attempt - 1), 120000); // 10s, 20s, 40s, 80s, 120s
-          console.log(`Job ${job.id} page ${pageNum} overloaded, retry ${attempt} in ${delay/1000}s`);
+          const delay = Math.min(30000 * Math.pow(1.5, attempt - 1), 300000); // 30s, 45s, 67s... max 5min
+          console.log(`Job ${job.id} page ${pageNum} retry ${attempt} in ${Math.round(delay/1000)}s`);
           await new Promise(r => setTimeout(r, delay));
         }
         upstream = await fetch('https://api.anthropic.com/v1/messages', {
@@ -698,8 +698,8 @@ async function processNextJob() {
         }),
         });
         data = await upstream.json();
-        // Retry on overload (529) or server error (500/529)
-        if (upstream.status === 529 || (upstream.status === 500 && data.error?.type === 'overloaded_error')) continue;
+        // Retry on overload (529) or any 5xx server error
+        if (upstream.status === 529 || upstream.status >= 500) continue;
         break;
       }
 
