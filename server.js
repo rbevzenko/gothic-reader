@@ -338,6 +338,20 @@ async function handleRegister(req, res) {
     stmtCreateUser.run(email, hash, uid);
     // Ensure credits row exists
     if (!stmtGetCredits.get(uid)) stmtUpsertCredits.run(uid, 0, 0);
+
+    // Promo: first 100 users get 10 free pages
+    const PROMO_LIMIT = 100;
+    const PROMO_CREDITS = 10;
+    const promoSetting = getSetting('promo_enabled', '1');
+    if (promoSetting === '1') {
+      const promoCount = db.prepare(`SELECT COUNT(*) as n FROM users`).get().n;
+      if (promoCount <= PROMO_LIMIT) {
+        const cur = stmtGetCredits.get(uid);
+        saveBalance(uid, (cur?.balance || 0) + PROMO_CREDITS);
+        console.log(`[promo] ${email} got ${PROMO_CREDITS} free pages (user #${promoCount}/${PROMO_LIMIT})`);
+      }
+    }
+
     const token = createSessionToken(uid);
     res.json({ token, uid, email });
   } catch (err) {
@@ -1055,16 +1069,21 @@ function adminSetCredits(req, res) {
 function adminGetSettings(req, res) {
   const packages    = getSetting('packages');
   const maintenance = getSetting('maintenance', '0');
+  const promoEnabled = getSetting('promo_enabled', '1');
+  const promoCount  = db.prepare(`SELECT COUNT(*) as n FROM users`).get().n;
   res.json({
     packages: packages ? JSON.parse(packages) : getPackages(),
     maintenance: maintenance === '1',
+    promo_enabled: promoEnabled === '1',
+    promo_count: promoCount,
   });
 }
 
 function adminSaveSettings(req, res) {
-  const { packages, maintenance } = req.body;
+  const { packages, maintenance, promo_enabled } = req.body;
   if (packages)    stmtSetSetting.run('packages', JSON.stringify(packages));
   if (maintenance !== undefined) stmtSetSetting.run('maintenance', maintenance ? '1' : '0');
+  if (promo_enabled !== undefined) stmtSetSetting.run('promo_enabled', promo_enabled ? '1' : '0');
   res.json({ ok: true });
 }
 
@@ -1216,7 +1235,16 @@ input[type=text], input[type=number] { padding: 0.3rem 0.6rem; border: 1px solid
 <!-- Settings -->
 <div id="s-settings" class="section">
   <div class="card" style="max-width:600px">
-    <h2>Maintenance mode</h2>
+    <h2>Promo campaign</h2>
+    <div class="row" style="margin-top:0.5rem">
+      <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+        <input type="checkbox" id="promo-toggle" onchange="togglePromo()">
+        Give 10 free pages to first 100 new users
+      </label>
+      <span id="promo-count" style="margin-left:1rem;color:var(--muted);font-size:0.82rem"></span>
+    </div>
+
+    <h2 style="margin-top:1.5rem">Maintenance mode</h2>
     <div class="row" style="margin-top:0.5rem">
       <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
         <input type="checkbox" id="maintenance-toggle" onchange="toggleMaintenance()">
@@ -1420,6 +1448,8 @@ function paymentsPage(dir) {
 async function loadSettings() {
   const d = await api('/admin/api/settings');
   document.getElementById('maintenance-toggle').checked = d.maintenance;
+  document.getElementById('promo-toggle').checked = d.promo_enabled;
+  document.getElementById('promo-count').textContent = \`\${d.promo_count} / 100 users registered\`;
   const pkgs = d.packages;
   document.getElementById('pkg-editor').innerHTML = Object.entries(pkgs).map(([id, pkg]) => \`
     <div style="margin-bottom:0.75rem">
@@ -1439,6 +1469,11 @@ async function loadSettings() {
 async function toggleMaintenance() {
   const on = document.getElementById('maintenance-toggle').checked;
   await post('/admin/api/settings', { maintenance: on });
+}
+
+async function togglePromo() {
+  const on = document.getElementById('promo-toggle').checked;
+  await post('/admin/api/settings', { promo_enabled: on });
 }
 
 async function savePackages() {
