@@ -1502,7 +1502,8 @@ async function openCheckout(packageId) {
       }),
     });
     const d = await r.json();
-    if (d.url) location.href = d.url;
+    if (d.url) { location.href = d.url; return; }
+    alert('Checkout error: ' + (d.error || JSON.stringify(d)));
   } catch (e) { alert('Checkout error: ' + e.message); }
 }
 
