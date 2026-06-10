@@ -331,7 +331,9 @@ async function handleRegister(req, res) {
   if (existing) return res.status(409).json({ error: 'Email already registered' });
 
   // Use existing anonymous uid (preserves credits) or create new one
-  const uid = anonUid || crypto.randomUUID();
+  // But only if uid is not already registered to another user
+  const uidTaken = anonUid ? stmtGetUserUid.get(anonUid) : null;
+  const uid = (!uidTaken && anonUid) ? anonUid : crypto.randomUUID();
   const hash = await bcrypt.hash(password, 10);
 
   try {
