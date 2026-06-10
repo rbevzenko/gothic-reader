@@ -970,6 +970,7 @@ function adminUsers(req, res) {
   const rows = db.prepare(`
     SELECT
       c.uid,
+      u.email,
       c.balance,
       c.total_bought,
       c.created_at,
@@ -978,6 +979,7 @@ function adminUsers(req, res) {
       COALESCE(p.paid_eur, 0) as paid_eur,
       r.last_used
     FROM credits c
+    LEFT JOIN users u ON u.uid = c.uid
     LEFT JOIN (
       SELECT uid, COUNT(*) as pages, SUM(cost_usd) as cost_usd, MAX(created_at) as last_used
       FROM requests GROUP BY uid
@@ -985,12 +987,16 @@ function adminUsers(req, res) {
     LEFT JOIN (
       SELECT uid, SUM(amount_eur) as paid_eur FROM payments GROUP BY uid
     ) p ON p.uid = c.uid
-    WHERE c.uid LIKE ?
+    WHERE c.uid LIKE ? OR u.email LIKE ?
     ORDER BY c.created_at DESC
     LIMIT ? OFFSET ?
-  `).all(`%${search}%`, limit, offset);
+  `).all(`%${search}%`, `%${search}%`, limit, offset);
 
-  const total = db.prepare(`SELECT COUNT(*) as n FROM credits WHERE uid LIKE ?`).get(`%${search}%`).n;
+  const total = db.prepare(`
+    SELECT COUNT(*) as n FROM credits c
+    LEFT JOIN users u ON u.uid = c.uid
+    WHERE c.uid LIKE ? OR u.email LIKE ?
+  `).get(`%${search}%`, `%${search}%`).n;
   res.json({ rows, total });
 }
 
@@ -1147,7 +1153,7 @@ input[type=text], input[type=number] { padding: 0.3rem 0.6rem; border: 1px solid
       <span id="user-count" style="font-size:0.8rem;color:var(--text-2)"></span>
     </div>
     <table>
-      <thead><tr><th>UID</th><th>Balance</th><th>Bought</th><th>Pages used</th><th>API cost</th><th>Paid</th><th>Joined</th><th></th></tr></thead>
+      <thead><tr><th>Email</th><th>Balance</th><th>Bought</th><th>Pages used</th><th>API cost</th><th>Paid</th><th>Joined</th><th></th></tr></thead>
       <tbody id="users-tbody"></tbody>
     </table>
     <div class="pager">
@@ -1348,7 +1354,7 @@ async function loadUsers() {
   document.getElementById('users-pager-info').textContent = \`\${usersOffset+1}–\${Math.min(usersOffset+PAGE, d.total)} of \${d.total}\`;
   document.getElementById('users-tbody').innerHTML = d.rows.map(u => \`
     <tr>
-      <td style="font-family:monospace;font-size:0.75rem">\${u.uid}</td>
+      <td>\${u.email || '<span style="color:#999;font-size:0.75rem">'+u.uid.slice(0,8)+'…</span>'}</td>
       <td><span class="badge \${u.balance>0?'green':'blue'}">\${u.balance}</span></td>
       <td>\${u.total_bought}</td>
       <td>\${u.pages_used}</td>
