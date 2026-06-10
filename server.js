@@ -669,8 +669,6 @@ async function processNextJob() {
       // Render PDF page on server
       const b64 = await renderPdfPage(job.pdf_path, pageNum);
 
-      saveBalance(job.uid, credits - 1);
-
       const upstream = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -706,14 +704,25 @@ async function processNextJob() {
       const start = raw.indexOf('{');
       const end   = raw.lastIndexOf('}');
       if (start === -1 || end === -1) throw new Error('No JSON in response');
+      const chunk = raw.slice(start, end + 1);
       let result;
       try {
-        result = JSON.parse(raw.slice(start, end + 1));
+        result = JSON.parse(chunk);
       } catch {
-        // jsonrepair handles unescaped quotes, trailing commas, etc.
-        result = JSON.parse(jsonrepair(raw.slice(start, end + 1)));
+        try {
+          result = JSON.parse(jsonrepair(chunk));
+        } catch {
+          // Last resort: extract paragraphs as plain text so page is not lost
+          const paragraphs = chunk
+            .split(/\\n|\n/)
+            .map(l => l.replace(/^[\s"{}[\],]+|[\s"{}[\],]+$/g, '').trim())
+            .filter(l => l.length > 10);
+          result = { title: '', paragraphs };
+        }
       }
 
+      // Deduct credit only after successful result
+      saveBalance(job.uid, credits - 1);
       db.prepare(`INSERT OR REPLACE INTO project_pages (project_id, page_num, result_json, model) VALUES (?, ?, ?, ?)`)
         .run(job.project_id, pageNum, JSON.stringify(result), job.model);
       db.prepare(`UPDATE projects SET updated_at = unixepoch() WHERE id = ?`).run(job.project_id);
