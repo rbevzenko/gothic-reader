@@ -669,7 +669,15 @@ async function processNextJob() {
       // Render PDF page on server
       const b64 = await renderPdfPage(job.pdf_path, pageNum);
 
-      const upstream = await fetch('https://api.anthropic.com/v1/messages', {
+      // Call Claude with exponential backoff retry on overload
+      let upstream, data;
+      for (let attempt = 0; attempt < 6; attempt++) {
+        if (attempt > 0) {
+          const delay = Math.min(10000 * Math.pow(2, attempt - 1), 120000); // 10s, 20s, 40s, 80s, 120s
+          console.log(`Job ${job.id} page ${pageNum} overloaded, retry ${attempt} in ${delay/1000}s`);
+          await new Promise(r => setTimeout(r, delay));
+        }
+        upstream = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -688,12 +696,15 @@ async function processNextJob() {
             ],
           }],
         }),
-      });
+        });
+        data = await upstream.json();
+        // Retry on overload (529) or server error (500/529)
+        if (upstream.status === 529 || (upstream.status === 500 && data.error?.type === 'overloaded_error')) continue;
+        break;
+      }
 
-      const data = await upstream.json();
       if (!upstream.ok) {
-        saveBalance(job.uid, credits);
-        throw new Error(data.error?.message || 'Claude API error');
+        throw new Error(data.error?.message || `Claude API error ${upstream.status}`);
       }
 
       const inputTokens  = data.usage?.input_tokens  || 0;
