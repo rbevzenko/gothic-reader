@@ -26,6 +26,7 @@ import Database from 'better-sqlite3';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import path from 'path';
+import { jsonrepair } from 'jsonrepair';
 import fs from 'fs';
 import os from 'os';
 import { fileURLToPath } from 'url';
@@ -709,8 +710,8 @@ async function processNextJob() {
       try {
         result = JSON.parse(raw.slice(start, end + 1));
       } catch {
-        // Fallback: store raw text as single paragraph so page is not lost
-        result = { title: '', paragraphs: [raw.slice(start, end + 1).replace(/[\x00-\x1F]/g, ' ')] };
+        // jsonrepair handles unescaped quotes, trailing commas, etc.
+        result = JSON.parse(jsonrepair(raw.slice(start, end + 1)));
       }
 
       db.prepare(`INSERT OR REPLACE INTO project_pages (project_id, page_num, result_json, model) VALUES (?, ?, ?, ?)`)
