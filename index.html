@@ -2342,20 +2342,6 @@ ${pages.map(({ num, result: r }) => `
   </div>`).join('')}` : ''}
 </div>`).join('\n')}
 </body>
-<script>
-// A4 content height: 297mm - 2.5cm top - 3cm bottom = 241mm ≈ 910px at 96dpi
-const PAGE_H = (241 / 25.4) * 96;
-document.querySelectorAll('.page-block').forEach(block => {
-  const h = block.scrollHeight;
-  if (h > PAGE_H) {
-    const scale = PAGE_H / h;
-    block.style.transformOrigin = 'top left';
-    block.style.transform = 'scale(' + scale + ')';
-    block.style.width = (100 / scale) + '%';
-    block.style.marginBottom = '-' + (h - PAGE_H) + 'px';
-  }
-});
-</script>
 </html>`;
 }
 
