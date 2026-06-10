@@ -987,6 +987,7 @@ const TRANSLATIONS = {
     hint_html: '<strong>Tip:</strong> Links of the format <code>dlc.mpg.de/fullscreen/{id}/{page}/</code> — the app fetches OCR and image automatically.<span id="screenshot-server-indicator" style="margin-left:0.8rem;font-size:0.68rem"></span>',
     // dynamic
     loading_pdf: 'Loading…',
+    rendering_page: 'Rendering page',
     pages_count: 'pages',
     rendering_page: 'Rendering page…',
     page_not_processed: 'Page {n} not processed.',
@@ -1054,6 +1055,7 @@ const TRANSLATIONS = {
     upload_zone: '📄 Screenshot hineinziehen oder klicken · PNG · JPG · WebP',
     hint_html: '<strong>Tipp:</strong> Links im Format <code>dlc.mpg.de/fullscreen/{id}/{page}/</code> — die App lädt OCR und Bild automatisch.<span id="screenshot-server-indicator" style="margin-left:0.8rem;font-size:0.68rem"></span>',
     loading_pdf: 'Lade…',
+    rendering_page: 'Seite wird gerendert',
     pages_count: 'Seiten',
     rendering_page: 'Rendere Seite…',
     page_not_processed: 'Seite {n} nicht verarbeitet.',
@@ -1121,6 +1123,7 @@ const TRANSLATIONS = {
     upload_zone: '📄 Перетащите скриншот или нажмите для выбора · PNG · JPG · WebP',
     hint_html: '<strong>Совет:</strong> ссылки формата <code>dlc.mpg.de/fullscreen/{id}/{page}/</code> — приложение само скачает OCR и изображение.<span id="screenshot-server-indicator" style="margin-left:0.8rem;font-size:0.68rem"></span>',
     loading_pdf: 'Загружаю…',
+    rendering_page: 'Рендеринг страницы',
     pages_count: 'страниц',
     rendering_page: 'Рендерю страницу…',
     page_not_processed: 'Страница {n} не обработана.',
@@ -1188,6 +1191,7 @@ const TRANSLATIONS = {
     upload_zone: "📄 Déposez une capture d'écran ou cliquez · PNG · JPG · WebP",
     hint_html: '<strong>Conseil :</strong> Les liens au format <code>dlc.mpg.de/fullscreen/{id}/{page}/</code> — l\'application télécharge OCR et image automatiquement.<span id="screenshot-server-indicator" style="margin-left:0.8rem;font-size:0.68rem"></span>',
     loading_pdf: 'Chargement…',
+    rendering_page: 'Rendu de la page',
     pages_count: 'pages',
     rendering_page: 'Rendu de la page…',
     page_not_processed: 'Page {n} non traitée.',
@@ -1729,7 +1733,9 @@ async function loadPdf(file) {
   if (badge) badge.style.display = 'none';
 
   const pageCountEl = document.getElementById('pdf-page-count');
+  const processBtn = document.getElementById('process-all-btn');
   pageCountEl.textContent = t('loading_pdf');
+  processBtn.disabled = true;
   document.getElementById('pdf-pages-bar').style.display = 'block';
   document.getElementById('mode-bar').style.display = 'flex';
   document.getElementById('page-sel-row').style.display = 'flex';
@@ -1737,12 +1743,15 @@ async function loadPdf(file) {
   const arrayBuffer = await file.arrayBuffer();
   pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   totalPages = pdfDoc.numPages;
-  pageCountEl.textContent = `${totalPages} ${t('pages_count')}`;
 
   for (let i = 1; i <= totalPages; i++) {
+    pageCountEl.textContent = `${t('rendering_page')} ${i} / ${totalPages}`;
     const thumb = await renderThumb(i);
     document.getElementById('pdf-pages-strip').appendChild(thumb);
   }
+
+  pageCountEl.textContent = `${totalPages} ${t('pages_count')}`;
+  processBtn.disabled = false;
 
   // Create project and restore already-saved pages
   if (WORKER_URL && getSessionToken()) {
