@@ -820,7 +820,7 @@
       <span class="mode-label" style="margin-left:0.5rem" data-i18n="model_label">Model:</span>
       <select id="model-select">
         <option value="claude-haiku-4-5-20251001" data-i18n-opt="model_haiku">Haiku 4.5 — fast, cheap</option>
-        <option value="claude-sonnet-4-5" data-i18n-opt="model_sonnet">Sonnet 4.5 — more accurate</option>
+        <option value="claude-sonnet-4-6" data-i18n-opt="model_sonnet">Sonnet 4.5 — more accurate</option>
         <option value="claude-opus-4-8" data-i18n-opt="model_opus">Opus 4 — max quality</option>
       </select>
       <span class="model-cost" id="model-cost-label"></span>
@@ -1632,11 +1632,11 @@ const modelSelectEl   = document.getElementById('model-select');
 
 const MODEL_DEFAULTS = {
   modernize: 'claude-haiku-4-5-20251001',
-  translate: 'claude-sonnet-4-5',
+  translate: 'claude-sonnet-4-6',
 };
 const MODEL_COST = {
   'claude-haiku-4-5-20251001': { label: '~$0.25 / 1M in', cls: 'cheap' },
-  'claude-sonnet-4-5':         { label: '~$3 / 1M in',   cls: 'mid'   },
+  'claude-sonnet-4-6':         { label: '~$3 / 1M in',   cls: 'mid'   },
   'claude-opus-4-8':           { label: '~$15 / 1M in',  cls: ''      },
 };
 
