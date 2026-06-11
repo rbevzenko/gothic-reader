@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>About — Fraktur Reader</title>
+<link rel="icon" type="image/png" href="/logo.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#2563eb">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --accent: #2563eb;
+    --accent-dark: #1d4ed8;
+    --text-1: #111827;
+    --text-2: #4b5563;
+    --text-3: #9ca3af;
+    --border: #e5e7eb;
+    --surface: #fff;
+    --surface-2: #f9fafb;
+    --radius: 10px;
+    --shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: var(--text-1);
+    background: var(--surface-2);
+    line-height: 1.6;
+  }
+
+  /* Nav */
+  nav {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0.9rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .nav-logo {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    text-decoration: none;
+    font-family: 'Playfair Display', serif;
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--text-1);
+  }
+  .nav-logo img { height: 28px; }
+  .nav-cta {
+    background: var(--accent);
+    color: #fff;
+    text-decoration: none;
+    padding: 0.45rem 1rem;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  /* Hero */
+  .hero {
+    background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
+    color: #fff;
+    text-align: center;
+    padding: 5rem 1.5rem 4rem;
+  }
+  .hero h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    font-weight: 700;
+    margin-bottom: 1rem;
+    line-height: 1.2;
+  }
+  .hero p {
+    font-size: 1.1rem;
+    opacity: 0.85;
+    max-width: 600px;
+    margin: 0 auto 2rem;
+  }
+  .hero-btn {
+    display: inline-block;
+    background: #fff;
+    color: var(--accent);
+    font-weight: 700;
+    padding: 0.75rem 2rem;
+    border-radius: 8px;
+    text-decoration: none;
+    font-size: 1rem;
+  }
+
+  /* Sections */
+  .container { max-width: 860px; margin: 0 auto; padding: 0 1.5rem; }
+
+  section { padding: 4rem 0; }
+  section + section { border-top: 1px solid var(--border); }
+
+  .section-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+  }
+  h2 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(1.5rem, 3vw, 2rem);
+    font-weight: 600;
+    margin-bottom: 1rem;
+    color: var(--text-1);
+  }
+  .lead {
+    font-size: 1.05rem;
+    color: var(--text-2);
+    max-width: 680px;
+  }
+
+  /* Screenshot */
+  .screenshot {
+    margin-top: 2rem;
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.12);
+    border: 1px solid var(--border);
+  }
+  .screenshot img { width: 100%; display: block; }
+
+  /* Audience cards */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+    margin-top: 2rem;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    box-shadow: var(--shadow);
+  }
+  .card-icon { font-size: 1.8rem; margin-bottom: 0.5rem; }
+  .card h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.25rem; }
+  .card p { font-size: 0.82rem; color: var(--text-2); }
+
+  /* How it works */
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+    margin-top: 2rem;
+  }
+  .step {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+  .step-num {
+    background: var(--accent);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.85rem;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .step h3 { font-size: 0.92rem; font-weight: 600; margin-bottom: 0.2rem; }
+  .step p { font-size: 0.82rem; color: var(--text-2); }
+
+  /* Pricing */
+  .pricing-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-top: 2rem;
+  }
+  .plan {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    box-shadow: var(--shadow);
+    position: relative;
+  }
+  .plan.best {
+    border-color: var(--accent);
+    border-width: 2px;
+  }
+  .plan-badge {
+    position: absolute;
+    top: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--accent);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 0.2rem 0.7rem;
+    border-radius: 20px;
+    white-space: nowrap;
+  }
+  .plan-name { font-size: 0.85rem; font-weight: 600; color: var(--text-2); margin-bottom: 0.5rem; }
+  .plan-price { font-size: 2rem; font-weight: 700; color: var(--text-1); line-height: 1; }
+  .plan-price span { font-size: 1rem; font-weight: 400; color: var(--text-2); }
+  .plan-pages { font-size: 0.82rem; color: var(--text-2); margin: 0.4rem 0 0.8rem; }
+  .plan-per { font-size: 0.75rem; color: var(--text-3); }
+  .plan-free {
+    background: #eff6ff;
+    border-color: #bfdbfe;
+    text-align: center;
+    padding: 1.25rem;
+  }
+  .plan-free .plan-price { font-size: 1.5rem; color: var(--accent); }
+
+  .payment-note {
+    margin-top: 1.5rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    font-size: 0.85rem;
+    color: var(--text-2);
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  /* Contact */
+  .contact-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 2rem;
+    box-shadow: var(--shadow);
+    margin-top: 2rem;
+    display: flex;
+    gap: 2rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .contact-box p { color: var(--text-2); font-size: 0.95rem; flex: 1; min-width: 200px; }
+  .contact-btn {
+    background: var(--accent);
+    color: #fff;
+    text-decoration: none;
+    padding: 0.65rem 1.5rem;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    white-space: nowrap;
+  }
+
+  /* Footer */
+  footer {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 1.5rem;
+    text-align: center;
+    font-size: 0.8rem;
+    color: var(--text-3);
+  }
+  footer a { color: var(--text-2); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<nav>
+  <a class="nav-logo" href="/">
+    <img src="/logo.png" alt="Fraktur" onerror="this.style.display='none'">
+    Fraktur Reader
+  </a>
+  <a class="nav-cta" href="/">Open App →</a>
+</nav>
+
+<!-- Hero -->
+<div class="hero">
+  <h1>Read Gothic Script.<br>Understand Everything.</h1>
+  <p>AI-powered tool that reads Fraktur (Gothic script) and turns 19th-century German legal texts into plain, modern language.</p>
+  <a class="hero-btn" href="/">Try for free →</a>
+</div>
+
+<div class="container">
+
+  <!-- What is it -->
+  <section id="what">
+    <div class="section-label">What is it</div>
+    <h2>Gothic script made readable</h2>
+    <p class="lead">Fraktur Reader uses AI to recognize and modernize texts printed in Gothic typefaces (Fraktur, Kurrent, Sütterlin). Upload a PDF or paste a link — get a clean, readable translation in seconds.</p>
+    <div class="screenshot">
+      <img src="/screenshot.png" alt="Fraktur Reader interface" onerror="this.style.background:'#f3f4f6';this.style.minHeight='300px'">
+    </div>
+  </section>
+
+  <!-- For whom -->
+  <section id="audience">
+    <div class="section-label">For whom</div>
+    <h2>Built for researchers and legal professionals</h2>
+    <p class="lead">Anyone working with 19th-century German sources will find Fraktur Reader indispensable.</p>
+    <div class="cards">
+      <div class="card">
+        <div class="card-icon">⚖️</div>
+        <h3>Lawyers</h3>
+        <p>Historical legal texts, court decisions, commentaries on Roman and German law</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🎓</div>
+        <h3>Researchers</h3>
+        <p>Academic work with primary sources from German archives and libraries</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">📚</div>
+        <h3>Historians</h3>
+        <p>Documents, memoirs, newspapers and books from the 19th and early 20th centuries</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🧑‍🎓</div>
+        <h3>Students</h3>
+        <p>Study historical law and German legal thought from original sources</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- How it works -->
+  <section id="how">
+    <div class="section-label">How it works</div>
+    <h2>Three ways to use it</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div>
+          <h3>Upload a PDF</h3>
+          <p>Upload a scanned book or document — the app processes each page automatically</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div>
+          <h3>Paste a link</h3>
+          <p>Copy a page URL from the Max Planck Institute library or other DLC archive — the app fetches and translates it instantly</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div>
+          <h3>Upload a screenshot</h3>
+          <p>Take a photo or screenshot of any Gothic text and upload it — works with printed and handwritten sources</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing -->
+  <section id="pricing">
+    <div class="section-label">Pricing</div>
+    <h2>Simple, per-page pricing</h2>
+    <p class="lead">Pay only for what you process. No subscription required.</p>
+
+    <div class="pricing-grid">
+      <div class="plan plan-free">
+        <div class="plan-name">Free to start</div>
+        <div class="plan-price" style="color:var(--accent)">10 <span>pages</span></div>
+        <div class="plan-pages">Free on registration</div>
+        <div class="plan-per">No credit card required</div>
+      </div>
+      <div class="plan">
+        <div class="plan-name">Starter</div>
+        <div class="plan-price">€5 <span></span></div>
+        <div class="plan-pages">100 pages</div>
+        <div class="plan-per">€0.05 per page</div>
+      </div>
+      <div class="plan">
+        <div class="plan-name">Standard</div>
+        <div class="plan-price">€15 <span></span></div>
+        <div class="plan-pages">500 pages</div>
+        <div class="plan-per">€0.03 per page</div>
+      </div>
+      <div class="plan best">
+        <div class="plan-badge">⭐ Best value</div>
+        <div class="plan-name">Pro</div>
+        <div class="plan-price">€25 <span></span></div>
+        <div class="plan-pages">1000 pages</div>
+        <div class="plan-per">€0.025 per page</div>
+      </div>
+    </div>
+
+    <div class="payment-note">
+      💳 Pay with a <strong>Russian card via YooKassa</strong> or with <strong>any international bank card</strong> via Stripe — whatever works for you.
+    </div>
+  </section>
+
+  <!-- Contact -->
+  <section id="contact">
+    <div class="section-label">Contact</div>
+    <h2>Questions or feedback?</h2>
+    <div class="contact-box">
+      <p>We're happy to hear from you — whether it's a bug report, a feature request, or just a question about how it works.</p>
+      <a class="contact-btn" href="mailto:rbevzenko@gmail.com">Write to us →</a>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <p>© 2026 Fraktur Reader · <a href="/">Open App</a></p>
+</footer>
+
+</body>
+</html>

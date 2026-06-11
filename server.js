@@ -308,6 +308,7 @@ app.post('/admin/api/settings',adminAuth, adminSaveSettings);
 
 // Account page
 app.get('/account', (req, res) => res.sendFile(path.join(__dirname, 'account.html')));
+app.get('/about',   (req, res) => res.sendFile(path.join(__dirname, 'about.html')));
 
 // Frontend
 app.use(express.static(__dirname));
