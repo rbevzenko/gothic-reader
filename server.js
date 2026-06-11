@@ -836,9 +836,10 @@ async function handleProxyImage(req, res) {
     const r = await fetch(url);
     if (!r.ok) return res.status(r.status).send('Upstream error');
     const ct = r.headers.get('content-type') || 'image/jpeg';
+    const buf = Buffer.from(await r.arrayBuffer());
     res.set('Content-Type', ct);
     res.set('Cache-Control', 'public, max-age=86400');
-    r.body.pipe(res);
+    res.send(buf);
   } catch (e) {
     res.status(502).send(e.message);
   }
