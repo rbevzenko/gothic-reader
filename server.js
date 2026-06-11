@@ -802,6 +802,7 @@ async function handleClaude(req, res) {
 
     const data = await upstream.json();
     if (!upstream.ok) {
+      console.error('[claude] error', upstream.status, JSON.stringify(data).slice(0, 300));
       saveBalance(uid, credits); // refund
       return res.status(upstream.status).json(data);
     }
