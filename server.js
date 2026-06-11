@@ -274,6 +274,7 @@ app.post('/api/auth/change-password', handleChangePassword);
 
 app.post('/api/claude',        handleClaude);
 app.post('/api/process-url',   handleProcessUrl);
+app.get('/api/proxy-image',    handleProxyImage);
 app.get('/api/credits',        handleCredits);
 app.post('/api/checkout',      handleCheckout);
 app.post('/api/checkout-ru',   handleCheckoutRu);
@@ -826,6 +827,21 @@ async function handleCredits(req, res) {
   const { uid } = req.query;
   if (!uid) return res.status(400).json({ error: 'Missing uid' });
   res.json({ credits: fetchBalance(uid) });
+}
+
+async function handleProxyImage(req, res) {
+  const { url } = req.query;
+  if (!url || !url.startsWith('https://dlc.mpg.de/')) return res.status(400).send('Bad url');
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return res.status(r.status).send('Upstream error');
+    const ct = r.headers.get('content-type') || 'image/jpeg';
+    res.set('Content-Type', ct);
+    res.set('Cache-Control', 'public, max-age=86400');
+    r.body.pipe(res);
+  } catch (e) {
+    res.status(502).send(e.message);
+  }
 }
 
 async function handleProcessUrl(req, res) {

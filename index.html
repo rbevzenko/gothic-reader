@@ -2613,9 +2613,10 @@ async function loadFromUrl(url) {
 
   const imageUrl = `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!1500,2000/0/default.jpg`;
 
-  // Show image directly
+  // Show image via server proxy
   const img = document.getElementById('orig-img');
-  img.src = imageUrl; img.style.display = 'block'; origEmpty.style.display = 'none';
+  img.src = `${WORKER_URL}/api/proxy-image?url=${encodeURIComponent(imageUrl)}`;
+  img.style.display = 'block'; origEmpty.style.display = 'none';
 
   document.getElementById('loading').style.display = 'block';
 
