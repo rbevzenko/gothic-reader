@@ -2645,13 +2645,7 @@ async function loadFromUrl(url) {
     translateOcr(ocrText);
   } else {
     try {
-      const imgResp = await fetch(imageUrl);
-      if (!imgResp.ok) throw new Error('Image fetch failed');
-      const blob = new Blob([await imgResp.arrayBuffer()], { type: 'image/jpeg' });
-      const dataUrl = await blobToDataUrl(blob);
-      const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
-      console.log('[dlc] blob size:', blob.size, 'b64 len:', b64.length, 'prefix:', dataUrl.slice(0,30));
-      await translateSingle(b64, 'image/jpeg');
+      await translateUrlViaServer(imageUrl);
     } catch (e) {
       showTranslateError(e);
       document.getElementById('loading').style.display = 'none';
@@ -2671,6 +2665,32 @@ function convertToJpeg(dataUrl) {
     img.onerror = () => resolve(dataUrl); // fallback
     img.src = dataUrl;
   });
+}
+
+async function translateUrlViaServer(imageUrl) {
+  const mode   = getSecMode();
+  const lang   = getSecLang();
+  const prompt = mode === 'modernize' ? PROMPT_MODERNIZE() : PROMPT_TRANSLATE(lang);
+  const res = await fetch(`${WORKER_URL}/api/process-url`, {
+    method: 'POST',
+    headers: hostedAuthHeaders(),
+    body: JSON.stringify({ image_url: imageUrl, system: prompt, model: getModel() }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    if (data.error === 'no_credits') throw new Error(t('error_no_credits') || 'No credits remaining.');
+    throw new Error(data.error?.message || data.error || JSON.stringify(data));
+  }
+  if (data.credits_remaining !== undefined) updateCreditsBadge(data.credits_remaining);
+  const raw = (data.content || []).map(b => b.text || '').join('');
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error(t('error_no_json') + ': ' + raw.slice(0, 300));
+  const result = JSON.parse(m[0]);
+  lastResult = result;
+  render(result);
+  document.getElementById('copy-btn').style.display = 'block';
+  document.getElementById('reprocess-btn').style.display = 'block';
+  document.getElementById('loading').style.display = 'none';
 }
 
 function blobToDataUrl(blob) {

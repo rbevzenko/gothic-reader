@@ -273,6 +273,7 @@ app.get('/api/auth/me',              handleMe);
 app.post('/api/auth/change-password', handleChangePassword);
 
 app.post('/api/claude',        handleClaude);
+app.post('/api/process-url',   handleProcessUrl);
 app.get('/api/credits',        handleCredits);
 app.post('/api/checkout',      handleCheckout);
 app.post('/api/checkout-ru',   handleCheckoutRu);
@@ -825,6 +826,70 @@ async function handleCredits(req, res) {
   const { uid } = req.query;
   if (!uid) return res.status(400).json({ error: 'Missing uid' });
   res.json({ credits: fetchBalance(uid) });
+}
+
+async function handleProcessUrl(req, res) {
+  if (getSetting('maintenance') === '1') return res.status(503).json({ error: 'maintenance' });
+
+  const uid = getUidFromRequest(req);
+  if (!uid) return res.status(401).json({ error: 'Missing X-User-Id' });
+
+  const credits = fetchBalance(uid);
+  if (credits <= 0) return res.status(402).json({ error: 'no_credits' });
+
+  const { image_url, system, model } = req.body;
+  if (!image_url || !system) return res.status(400).json({ error: 'image_url and system required' });
+
+  // Fetch image server-side
+  let imageB64, mediaType;
+  try {
+    const r = await fetch(image_url);
+    if (!r.ok) return res.status(502).json({ error: `Image fetch failed: ${r.status}` });
+    const buf = Buffer.from(await r.arrayBuffer());
+    mediaType = r.headers.get('content-type')?.split(';')[0] || 'image/jpeg';
+    if (!['image/jpeg','image/png','image/gif','image/webp'].includes(mediaType)) mediaType = 'image/jpeg';
+    imageB64 = buf.toString('base64');
+  } catch (e) {
+    return res.status(502).json({ error: `Image fetch error: ${e.message}` });
+  }
+
+  saveBalance(uid, credits - 1);
+
+  try {
+    const upstream = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: model || 'claude-haiku-4-5-20251001',
+        max_tokens: 4000,
+        system,
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageB64 } },
+          { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' }
+        ]}]
+      }),
+    });
+
+    const data = await upstream.json();
+    if (!upstream.ok) {
+      console.error('[process-url] claude error', upstream.status, JSON.stringify(data).slice(0, 300));
+      saveBalance(uid, credits);
+      return res.status(upstream.status).json(data);
+    }
+
+    const model2 = model || 'claude-haiku-4-5-20251001';
+    stmtLogRequest.run(uid, model2, data.usage?.input_tokens || 0, data.usage?.output_tokens || 0,
+      calcCost(model2, data.usage?.input_tokens || 0, data.usage?.output_tokens || 0));
+
+    res.json({ ...data, credits_remaining: fetchBalance(uid) });
+  } catch (e) {
+    saveBalance(uid, credits);
+    res.status(500).json({ error: e.message });
+  }
 }
 
 async function handleCheckout(req, res) {
