@@ -2647,8 +2647,10 @@ async function loadFromUrl(url) {
     try {
       const imgResp = await fetch(imageUrl);
       if (!imgResp.ok) throw new Error('Image fetch failed');
-      const arrayBuf = await imgResp.arrayBuffer();
-      const b64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuf)));
+      const blob = new Blob([await imgResp.arrayBuffer()], { type: 'image/jpeg' });
+      const dataUrl = await blobToDataUrl(blob);
+      const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+      console.log('[dlc] blob size:', blob.size, 'b64 len:', b64.length, 'prefix:', dataUrl.slice(0,30));
       await translateSingle(b64, 'image/jpeg');
     } catch (e) {
       showTranslateError(e);
