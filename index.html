@@ -2649,13 +2649,29 @@ async function loadFromUrl(url) {
       if (!imgResp.ok) throw new Error('Image fetch failed');
       const blob = await imgResp.blob();
       const dataUrl = await blobToDataUrl(blob);
-      const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
-      await translateSingle(b64, blob.type);
+      // Convert to JPEG if needed (Claude doesn't support tiff)
+      const jpegDataUrl = await convertToJpeg(dataUrl);
+      const b64 = jpegDataUrl.slice(jpegDataUrl.indexOf(',') + 1);
+      await translateSingle(b64, 'image/jpeg');
     } catch (e) {
       showTranslateError(e);
       document.getElementById('loading').style.display = 'none';
     }
   }
+}
+
+function convertToJpeg(dataUrl) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+      canvas.getContext('2d').drawImage(img, 0, 0);
+      resolve(canvas.toDataURL('image/jpeg', 0.92));
+    };
+    img.onerror = () => resolve(dataUrl); // fallback
+    img.src = dataUrl;
+  });
 }
 
 function blobToDataUrl(blob) {
