@@ -2647,11 +2647,8 @@ async function loadFromUrl(url) {
     try {
       const imgResp = await fetch(imageUrl);
       if (!imgResp.ok) throw new Error('Image fetch failed');
-      const blob = await imgResp.blob();
-      const dataUrl = await blobToDataUrl(blob);
-      // Convert to JPEG if needed (Claude doesn't support tiff)
-      const jpegDataUrl = await convertToJpeg(dataUrl);
-      const b64 = jpegDataUrl.slice(jpegDataUrl.indexOf(',') + 1);
+      const arrayBuf = await imgResp.arrayBuffer();
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuf)));
       await translateSingle(b64, 'image/jpeg');
     } catch (e) {
       showTranslateError(e);
