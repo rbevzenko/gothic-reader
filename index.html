@@ -2611,13 +2611,22 @@ async function loadFromUrl(url) {
     } catch (_) {}
   }
 
-  window.open(`https://dlc.mpg.de/image/${id}/${pageNum}/`, '_blank');
-  document.getElementById('orig-img').style.display = 'none';
-  origEmpty.innerHTML = `<div style="text-align:center;padding:2rem 1rem;font-size:0.82rem">${t('opened_in_tab')}</div>`;
-  origEmpty.style.display = 'block';
+  const imageUrl = `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!1500,2000/0/default.jpg`;
 
-  const claudeUrl = `https://dlc.mpg.de/api/v2/records/${id}/files/images/${page}.tif/full/!1500,2000/0/default.jpg`;
+  // Try to show the image
+  try {
+    const imgResp = await fetch(imageUrl);
+    if (imgResp.ok) {
+      const blob = await imgResp.blob();
+      const dataUrl = await blobToDataUrl(blob);
+      const img = document.getElementById('orig-img');
+      img.src = dataUrl; img.style.display = 'block'; origEmpty.style.display = 'none';
+    }
+  } catch (_) {}
 
+  document.getElementById('loading').style.display = 'block';
+
+  // Try OCR text first
   let ocrText = null;
   try {
     const ocrUrl = `https://dlc.mpg.de/api/v1/records/${id}/files/plaintext/${page}.xml`;
@@ -2631,18 +2640,21 @@ async function loadFromUrl(url) {
     }
   } catch (_) {}
 
-  document.getElementById('loading').style.display = 'none';
-
   if (ocrText) {
+    document.getElementById('loading').style.display = 'none';
     translateOcr(ocrText);
   } else {
-    document.getElementById('loading').style.display = 'block';
     try {
-      await translateUrlDirect(claudeUrl);
+      const imgResp = await fetch(imageUrl);
+      if (!imgResp.ok) throw new Error('Image fetch failed');
+      const blob = await imgResp.blob();
+      const dataUrl = await blobToDataUrl(blob);
+      const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+      await translateSingle(b64, blob.type);
     } catch (e) {
       showTranslateError(e);
+      document.getElementById('loading').style.display = 'none';
     }
-    document.getElementById('loading').style.display = 'none';
   }
 }
 
