@@ -275,6 +275,7 @@ app.post('/api/auth/change-password', handleChangePassword);
 app.post('/api/claude',        handleClaude);
 app.post('/api/process-url',   handleProcessUrl);
 app.get('/api/proxy-image',    handleProxyImage);
+app.post('/api/tg-webhook',    handleTgWebhook);
 app.get('/api/credits',        handleCredits);
 app.post('/api/checkout',      handleCheckout);
 app.post('/api/checkout-ru',   handleCheckoutRu);
@@ -844,6 +845,37 @@ async function handleProxyImage(req, res) {
   } catch (e) {
     res.status(502).send(e.message);
   }
+}
+
+const TG_TOKEN = process.env.TG_TOKEN || '8839507772:AAGR_THA7lxBTliab9Zktrv7QE2vY1kaO8M';
+const TG_OWNER = process.env.TG_OWNER || '221519259';
+const TG_API   = `https://api.telegram.org/bot${TG_TOKEN}`;
+
+async function tgSend(chatId, text) {
+  await fetch(`${TG_API}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+  }).catch(() => {});
+}
+
+async function handleTgWebhook(req, res) {
+  res.sendStatus(200);
+  const msg = req.body?.message;
+  if (!msg || !msg.text) return;
+
+  const chatId   = msg.chat.id;
+  const username = msg.from?.username ? `@${msg.from.username}` : (msg.from?.first_name || 'unknown');
+  const text     = msg.text.trim();
+
+  await tgSend(chatId,
+    `👋 Thanks for reaching out!\n\nWe've received your message and will get back to you shortly.\n\n` +
+    `📖 In the meantime, try <a href="https://fraktur.app">fraktur.app</a>`
+  );
+
+  await tgSend(TG_OWNER,
+    `📨 <b>New message from ${username}</b> (chat_id: ${chatId}):\n\n${text}`
+  );
 }
 
 async function handleProcessUrl(req, res) {
