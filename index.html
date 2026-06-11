@@ -756,7 +756,7 @@
   </div>
   <!-- Account link (always visible when hosted mode) -->
   <div id="account-header-link" style="display:none; align-items:center; gap:0.5rem;">
-    <a href="/about" style="font-family:inherit;font-size:0.78rem;font-weight:500;padding:0.28rem 0.75rem;background:none;border:none;color:var(--text-2);cursor:pointer;text-decoration:none;">About</a>
+    <a href="/about" style="font-family:inherit;font-size:0.78rem;font-weight:500;padding:0.28rem 0.75rem;background:none;border:none;color:var(--text-2);cursor:pointer;text-decoration:none;" data-i18n="nav_about">About</a>
     <a href="/account" style="font-family:inherit;font-size:0.78rem;font-weight:500;padding:0.28rem 0.75rem;background:none;border:1px solid var(--border-2);border-radius:var(--radius-sm);color:var(--text-2);cursor:pointer;text-decoration:none;">My account</a>
   </div>
   <!-- Credits badge (shown only in hosted mode) -->
@@ -967,6 +967,7 @@
 const TRANSLATIONS = {
   en: {
     subtitle: 'Fraktur → Modern German · Modernization & Translation',
+    nav_about: 'About',
     apikey_label: 'Anthropic API Key:',
     apikey_saved_html: 'API key saved. <a id="apikey-change">Change</a>',
     drop_title: 'Load PDF File',
@@ -1036,6 +1037,7 @@ const TRANSLATIONS = {
   },
   de: {
     subtitle: 'Fraktur → Modernes Deutsch · Modernisierung & Übersetzung',
+    nav_about: 'Über uns',
     apikey_label: 'Anthropic API Key:',
     apikey_saved_html: 'API-Schlüssel gespeichert. <a id="apikey-change">Ändern</a>',
     drop_title: 'PDF-Datei laden',
@@ -1104,6 +1106,7 @@ const TRANSLATIONS = {
   },
   ru: {
     subtitle: 'Fraktur → Современный немецкий · Модернизация и перевод',
+    nav_about: 'О сервисе',
     apikey_label: 'Anthropic API Key:',
     apikey_saved_html: 'API ключ сохранён. <a id="apikey-change">Изменить</a>',
     drop_title: 'Загрузить PDF',
@@ -1172,6 +1175,7 @@ const TRANSLATIONS = {
   },
   fr: {
     subtitle: 'Fraktur → Allemand moderne · Modernisation & Traduction',
+    nav_about: 'À propos',
     apikey_label: 'Clé API Anthropic :',
     apikey_saved_html: 'Clé API enregistrée. <a id="apikey-change">Modifier</a>',
     drop_title: 'Charger un PDF',
