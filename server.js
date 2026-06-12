@@ -653,11 +653,7 @@ async function renderPdfPage(pdfPath, pageNum) {
   return b64;
 }
 
-async function processNextJob() {
-  const job = db.prepare(`SELECT * FROM jobs WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1`).get();
-  if (!job) return;
-
-  db.prepare(`UPDATE jobs SET status = 'running', updated_at = unixepoch() WHERE id = ?`).run(job.id);
+async function processJob(job) {
 
   const pages = JSON.parse(job.pages);
   let pagesDone = 0;
@@ -773,9 +769,28 @@ async function processNextJob() {
   if (job.pdf_path) try { fs.unlinkSync(job.pdf_path); } catch {}
 }
 
-// Poll for pending jobs every 3 seconds
+// Poll for pending jobs every 3 seconds — run up to 3 jobs in parallel
+const MAX_CONCURRENT_JOBS = 3;
+let runningJobs = 0;
+
 setInterval(async () => {
-  try { await processNextJob(); } catch (e) { console.error('Job worker error:', e); }
+  if (runningJobs >= MAX_CONCURRENT_JOBS) return;
+
+  const slots = MAX_CONCURRENT_JOBS - runningJobs;
+  const pending = db.prepare(
+    `SELECT * FROM jobs WHERE status = 'pending' ORDER BY created_at ASC LIMIT ?`
+  ).all(slots);
+
+  for (const job of pending) {
+    // Atomically claim the job
+    const claimed = db.prepare(
+      `UPDATE jobs SET status = 'running', updated_at = unixepoch() WHERE id = ? AND status = 'pending'`
+    ).run(job.id);
+    if (claimed.changes === 0) continue; // another worker claimed it
+
+    runningJobs++;
+    processJob(job).finally(() => { runningJobs--; });
+  }
 }, 3000);
 
 // ── Public handlers ───────────────────────────────────────────────────────────
