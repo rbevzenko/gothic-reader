@@ -592,6 +592,41 @@ app.post('/api/jobs/:id/images', requireAuth, (req, res) => {
 const LATIN_FIELD = `  "latin_fragments": [\n    { "original": "...", "translation": "...", "source": "..." }\n  ]`;
 const NO_LATIN_FIELD = `  "latin_fragments": []`;
 
+function getOcrPrompt(latin) {
+  return `Du bist Experte für deutsche Rechtsliteratur des 19. Jahrhunderts in Frakturschrift.
+Lies den Text aus dem Bild und gib ihn in modernem Deutsch wieder.
+
+Regeln:
+1. Lies den Frakturtext genau, beachte archaische Orthographie.
+2. Gib den Text in moderner deutscher Rechtschreibung wieder: ſ→s, Majuskelregeln modernisieren.
+3. Lateinische Passagen bleiben im Original.
+4. Jeder Absatz = ein separates Element im Array.
+5. Fußnoten vollständig aufnehmen als eigene Elemente in paragraphs.
+6. Antworte NUR mit gültigem JSON — kein Markdown, keine Präambel.
+7. Alle Anführungszeichen in Strings escapen: \"
+
+{
+  "title": "Seitentitel oder leerer String",
+  "paragraphs": ["erster Absatz", "zweiter Absatz"],
+${latin ? LATIN_FIELD : NO_LATIN_FIELD}
+}`;
+}
+
+function getTranslatePrompt(lang, latin) {
+  return `Ты — профессиональный переводчик немецких юридических текстов XIX века.
+Переведи следующий текст на ${lang}. Текст уже транскрибирован с готического шрифта в современный немецкий.
+
+Правила:
+1. Переводи точно и профессионально, сохраняй юридическую терминологию.
+2. Каждый элемент массива paragraphs переводи отдельно, сохраняй структуру JSON.
+3. ${latin ? 'Латинские фрагменты оставь в original, добавь перевод и источник.' : 'latin_fragments всегда возвращай пустым массивом.'}
+4. Отвечай ТОЛЬКО валидным JSON — без markdown, без преамбулы.
+5. Все кавычки внутри строк JSON экранируй: \"
+
+Входной JSON:
+`;
+}
+
 function getPrompts(mode, lang, latin) {
   if (mode === 'modernize') {
     return `Du bist Experte für deutsche Rechtsliteratur des 19. Jahrhunderts in Frakturschrift.
@@ -653,11 +688,34 @@ async function renderPdfPage(pdfPath, pageNum) {
   return b64;
 }
 
-async function processJob(job) {
+async function callClaudeWithRetry(model, systemPrompt, messages) {
+  let upstream, data;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    if (attempt > 0) {
+      const delay = Math.min(30000 * Math.pow(1.5, attempt - 1), 300000);
+      await new Promise(r => setTimeout(r, delay));
+    }
+    upstream = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({ model, max_tokens: 4096, system: systemPrompt, messages }),
+    });
+    data = await upstream.json();
+    if (upstream.status === 529 || upstream.status >= 500) continue;
+    break;
+  }
+  if (!upstream.ok) throw new Error(data.error?.message || `Claude API error ${upstream.status}`);
+  return { data, inputTokens: data.usage?.input_tokens || 0, outputTokens: data.usage?.output_tokens || 0 };
+}
 
+async function processJob(job) {
   const pages = JSON.parse(job.pages);
   let pagesDone = 0;
-  const prompt = getPrompts(job.mode, job.lang, job.latin === 1);
+  const latin = job.latin === 1;
 
   for (const pageNum of pages) {
     const current = db.prepare(`SELECT status FROM jobs WHERE id = ?`).get(job.id);
@@ -682,70 +740,40 @@ async function processJob(job) {
     }
 
     try {
-      // Render PDF page on server
       const b64 = await renderPdfPage(job.pdf_path, pageNum);
+      const imageMsg = [
+        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
+        { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' },
+      ];
 
-      // Call Claude with exponential backoff retry on overload
-      let upstream, data;
-      for (let attempt = 0; attempt < 10; attempt++) {
-        if (attempt > 0) {
-          const delay = Math.min(30000 * Math.pow(1.5, attempt - 1), 300000); // 30s, 45s, 67s... max 5min
-          console.log(`Job ${job.id} page ${pageNum} retry ${attempt} in ${Math.round(delay/1000)}s`);
-          await new Promise(r => setTimeout(r, delay));
-        }
-        upstream = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': process.env.ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: job.model,
-          max_tokens: 4096,
-          system: prompt,
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
-              { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' },
-            ],
-          }],
-        }),
-        });
-        data = await upstream.json();
-        // Retry on overload (529) or any 5xx server error
-        if (upstream.status === 529 || upstream.status >= 500) continue;
-        break;
-      }
-
-      if (!upstream.ok) {
-        throw new Error(data.error?.message || `Claude API error ${upstream.status}`);
-      }
-
-      const inputTokens  = data.usage?.input_tokens  || 0;
-      const outputTokens = data.usage?.output_tokens || 0;
-      stmtLogRequest.run(job.uid, job.model, inputTokens, outputTokens, calcCost(job.model, inputTokens, outputTokens));
-
-      const raw = (data.content || []).map(b => b.text || '').join('');
-      const start = raw.indexOf('{');
-      const end   = raw.lastIndexOf('}');
-      if (start === -1 || end === -1) throw new Error('No JSON in response');
-      const chunk = raw.slice(start, end + 1);
       let result;
-      try {
-        result = JSON.parse(chunk);
-      } catch {
-        try {
-          result = JSON.parse(jsonrepair(chunk));
-        } catch {
-          // Last resort: extract paragraphs as plain text so page is not lost
-          const paragraphs = chunk
-            .split(/\\n|\n/)
-            .map(l => l.replace(/^[\s"{}[\],]+|[\s"{}[\],]+$/g, '').trim())
-            .filter(l => l.length > 10);
-          result = { title: '', paragraphs };
-        }
+
+      if (job.mode === 'translate') {
+        // Stage 1: Haiku OCR → modern German JSON
+        const OCR_MODEL = 'claude-haiku-4-5-20251001';
+        const { data: d1, inputTokens: i1, outputTokens: o1 } = await callClaudeWithRetry(
+          OCR_MODEL, getOcrPrompt(latin), [{ role: 'user', content: imageMsg }]
+        );
+        stmtLogRequest.run(job.uid, OCR_MODEL, i1, o1, calcCost(OCR_MODEL, i1, o1));
+        const germanJson = parseJsonResult((d1.content || []).map(b => b.text || '').join(''));
+
+        // Stage 2: Sonnet translates text only
+        const TRANSLATE_MODEL = 'claude-sonnet-4-6';
+        const { data: d2, inputTokens: i2, outputTokens: o2 } = await callClaudeWithRetry(
+          TRANSLATE_MODEL, getTranslatePrompt(job.lang, latin),
+          [{ role: 'user', content: [{ type: 'text', text: JSON.stringify(germanJson) }] }]
+        );
+        stmtLogRequest.run(job.uid, TRANSLATE_MODEL, i2, o2, calcCost(TRANSLATE_MODEL, i2, o2));
+        result = parseJsonResult((d2.content || []).map(b => b.text || '').join(''));
+
+      } else {
+        // Single stage: modernize
+        const prompt = getPrompts(job.mode, job.lang, latin);
+        const { data, inputTokens, outputTokens } = await callClaudeWithRetry(
+          job.model, prompt, [{ role: 'user', content: imageMsg }]
+        );
+        stmtLogRequest.run(job.uid, job.model, inputTokens, outputTokens, calcCost(job.model, inputTokens, outputTokens));
+        result = parseJsonResult((data.content || []).map(b => b.text || '').join(''));
       }
 
       // Deduct credit only after successful result
@@ -893,6 +921,34 @@ async function handleTgWebhook(req, res) {
   );
 }
 
+async function callClaudeApi(model, systemPrompt, messages) {
+  const upstream = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': process.env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({ model, max_tokens: 4096, system: systemPrompt, messages }),
+  });
+  const data = await upstream.json();
+  if (!upstream.ok) throw Object.assign(new Error(data.error?.message || `Claude ${upstream.status}`), { status: upstream.status, data });
+  return { data, inputTokens: data.usage?.input_tokens || 0, outputTokens: data.usage?.output_tokens || 0 };
+}
+
+function parseJsonResult(raw) {
+  const start = raw.indexOf('{');
+  const end   = raw.lastIndexOf('}');
+  if (start === -1 || end === -1) throw new Error('No JSON in response');
+  const chunk = raw.slice(start, end + 1);
+  try { return JSON.parse(chunk); } catch {}
+  try { return JSON.parse(jsonrepair(chunk)); } catch {}
+  const paragraphs = chunk.split(/\\n|\n/)
+    .map(l => l.replace(/^[\s"{}[\],]+|[\s"{}[\],]+$/g, '').trim())
+    .filter(l => l.length > 10);
+  return { title: '', paragraphs };
+}
+
 async function handleProcessUrl(req, res) {
   if (getSetting('maintenance') === '1') return res.status(503).json({ error: 'maintenance' });
 
@@ -902,8 +958,11 @@ async function handleProcessUrl(req, res) {
   const credits = fetchBalance(uid);
   if (credits <= 0) return res.status(402).json({ error: 'no_credits' });
 
-  const { image_url, system, model } = req.body;
-  if (!image_url || !system) return res.status(400).json({ error: 'image_url and system required' });
+  const { image_url, mode, lang, latin, model } = req.body;
+  // Support legacy calls that send system directly
+  const legacySystem = req.body.system;
+  if (!image_url) return res.status(400).json({ error: 'image_url required' });
+  if (!mode && !legacySystem) return res.status(400).json({ error: 'mode or system required' });
 
   // Fetch image server-side
   let imageB64, mediaType;
@@ -921,39 +980,53 @@ async function handleProcessUrl(req, res) {
   saveBalance(uid, credits - 1);
 
   try {
-    const upstream = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: model || 'claude-haiku-4-5-20251001',
-        max_tokens: 4000,
-        system,
-        messages: [{ role: 'user', content: [
-          { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageB64 } },
-          { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' }
-        ]}]
-      }),
-    });
+    let result;
 
-    const data = await upstream.json();
-    if (!upstream.ok) {
-      console.error('[process-url] claude error', upstream.status, JSON.stringify(data).slice(0, 300));
-      saveBalance(uid, credits);
-      return res.status(upstream.status).json(data);
+    if (mode === 'translate') {
+      // Stage 1: Haiku reads Fraktur → modern German JSON
+      const OCR_MODEL = 'claude-haiku-4-5-20251001';
+      const { data: d1, inputTokens: i1, outputTokens: o1 } = await callClaudeApi(
+        OCR_MODEL,
+        getOcrPrompt(!!latin),
+        [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageB64 } },
+          { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' },
+        ]}]
+      );
+      stmtLogRequest.run(uid, OCR_MODEL, i1, o1, calcCost(OCR_MODEL, i1, o1));
+      const germanJson = parseJsonResult((d1.content || []).map(b => b.text || '').join(''));
+
+      // Stage 2: Sonnet translates text only (no image)
+      const TRANSLATE_MODEL = 'claude-sonnet-4-6';
+      const { data: d2, inputTokens: i2, outputTokens: o2 } = await callClaudeApi(
+        TRANSLATE_MODEL,
+        getTranslatePrompt(lang || 'русский', !!latin),
+        [{ role: 'user', content: [{ type: 'text', text: JSON.stringify(germanJson) }] }]
+      );
+      stmtLogRequest.run(uid, TRANSLATE_MODEL, i2, o2, calcCost(TRANSLATE_MODEL, i2, o2));
+      result = parseJsonResult((d2.content || []).map(b => b.text || '').join(''));
+
+    } else {
+      // Single-stage: modernize or legacy
+      const systemPrompt = legacySystem || getPrompts(mode || 'modernize', lang || 'русский', !!latin);
+      const useModel = model || 'claude-haiku-4-5-20251001';
+      const { data, inputTokens, outputTokens } = await callClaudeApi(
+        useModel,
+        systemPrompt,
+        [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageB64 } },
+          { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' },
+        ]}]
+      );
+      stmtLogRequest.run(uid, useModel, inputTokens, outputTokens, calcCost(useModel, inputTokens, outputTokens));
+      result = parseJsonResult((data.content || []).map(b => b.text || '').join(''));
     }
 
-    const model2 = model || 'claude-haiku-4-5-20251001';
-    stmtLogRequest.run(uid, model2, data.usage?.input_tokens || 0, data.usage?.output_tokens || 0,
-      calcCost(model2, data.usage?.input_tokens || 0, data.usage?.output_tokens || 0));
-
-    res.json({ ...data, credits_remaining: fetchBalance(uid) });
+    res.json({ result, credits_remaining: fetchBalance(uid) });
   } catch (e) {
+    console.error('[process-url] error', e.message);
     saveBalance(uid, credits);
-    res.status(500).json({ error: e.message });
+    res.status(e.status || 500).json({ error: e.message });
   }
 }
 

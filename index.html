@@ -2683,13 +2683,13 @@ function convertToJpeg(dataUrl) {
 }
 
 async function translateUrlViaServer(imageUrl) {
-  const mode   = getSecMode();
-  const lang   = getSecLang();
-  const prompt = mode === 'modernize' ? PROMPT_MODERNIZE() : PROMPT_TRANSLATE(lang);
+  const mode  = getSecMode();
+  const lang  = getSecLang();
+  const latin = document.getElementById('latin-toggle')?.checked ? 1 : 0;
   const res = await fetch(`${WORKER_URL}/api/process-url`, {
     method: 'POST',
     headers: hostedAuthHeaders(),
-    body: JSON.stringify({ image_url: imageUrl, system: prompt, model: getModel() }),
+    body: JSON.stringify({ image_url: imageUrl, mode, lang, latin, model: getModel() }),
   });
   const data = await res.json();
   if (!res.ok) {
@@ -2697,10 +2697,8 @@ async function translateUrlViaServer(imageUrl) {
     throw new Error(data.error?.message || data.error || JSON.stringify(data));
   }
   if (data.credits_remaining !== undefined) updateCreditsBadge(data.credits_remaining);
-  const raw = (data.content || []).map(b => b.text || '').join('');
-  const m = raw.match(/\{[\s\S]*\}/);
-  if (!m) throw new Error(t('error_no_json') + ': ' + raw.slice(0, 300));
-  const result = JSON.parse(m[0]);
+  const result = data.result;
+  if (!result) throw new Error(t('error_no_json') || 'No result');
   lastResult = result;
   render(result);
   document.getElementById('copy-btn').style.display = 'block';
