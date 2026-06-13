@@ -272,8 +272,9 @@ app.post('/api/auth/logout',          handleLogout);
 app.get('/api/auth/me',              handleMe);
 app.post('/api/auth/change-password', handleChangePassword);
 
-app.post('/api/claude',        handleClaude);
-app.post('/api/process-url',   handleProcessUrl);
+app.post('/api/claude',          handleClaude);
+app.post('/api/translate-image', handleTranslateImage);
+app.post('/api/process-url',     handleProcessUrl);
 app.get('/api/proxy-image',    handleProxyImage);
 app.post('/api/tg-webhook',    handleTgWebhook);
 app.get('/api/credits',        handleCredits);
@@ -919,6 +920,63 @@ async function handleTgWebhook(req, res) {
   await tgSend(TG_OWNER,
     `📨 <b>New message from ${username}</b> (chat_id: ${chatId}):\n\n${text}`
   );
+}
+
+async function handleTranslateImage(req, res) {
+  if (getSetting('maintenance') === '1') return res.status(503).json({ error: 'maintenance' });
+
+  const uid = getUidFromRequest(req);
+  if (!uid) return res.status(401).json({ error: 'Missing X-User-Id' });
+
+  const credits = fetchBalance(uid);
+  if (credits <= 0) return res.status(402).json({ error: 'no_credits' });
+
+  const { image_b64, media_type, mode, lang, latin } = req.body;
+  if (!image_b64) return res.status(400).json({ error: 'image_b64 required' });
+
+  const mediaType = ['image/jpeg','image/png','image/gif','image/webp'].includes(media_type)
+    ? media_type : 'image/jpeg';
+
+  saveBalance(uid, credits - 1);
+
+  try {
+    let result;
+    const imageMsg = [
+      { type: 'image', source: { type: 'base64', media_type: mediaType, data: image_b64 } },
+      { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' },
+    ];
+
+    if (mode === 'translate') {
+      const OCR_MODEL = 'claude-haiku-4-5-20251001';
+      const { data: d1, inputTokens: i1, outputTokens: o1 } = await callClaudeApi(
+        OCR_MODEL, getOcrPrompt(!!latin), [{ role: 'user', content: imageMsg }]
+      );
+      stmtLogRequest.run(uid, OCR_MODEL, i1, o1, calcCost(OCR_MODEL, i1, o1));
+      const germanJson = parseJsonResult((d1.content || []).map(b => b.text || '').join(''));
+
+      const TRANSLATE_MODEL = 'claude-sonnet-4-6';
+      const { data: d2, inputTokens: i2, outputTokens: o2 } = await callClaudeApi(
+        TRANSLATE_MODEL, getTranslatePrompt(lang || 'русский', !!latin),
+        [{ role: 'user', content: [{ type: 'text', text: JSON.stringify(germanJson) }] }]
+      );
+      stmtLogRequest.run(uid, TRANSLATE_MODEL, i2, o2, calcCost(TRANSLATE_MODEL, i2, o2));
+      result = parseJsonResult((d2.content || []).map(b => b.text || '').join(''));
+    } else {
+      const systemPrompt = getPrompts(mode || 'modernize', lang || 'русский', !!latin);
+      const useModel = 'claude-haiku-4-5-20251001';
+      const { data, inputTokens, outputTokens } = await callClaudeApi(
+        useModel, systemPrompt, [{ role: 'user', content: imageMsg }]
+      );
+      stmtLogRequest.run(uid, useModel, inputTokens, outputTokens, calcCost(useModel, inputTokens, outputTokens));
+      result = parseJsonResult((data.content || []).map(b => b.text || '').join(''));
+    }
+
+    res.json({ result, credits_remaining: fetchBalance(uid) });
+  } catch (e) {
+    console.error('[translate-image] error', e.message);
+    saveBalance(uid, credits);
+    res.status(e.status || 500).json({ error: e.message });
+  }
 }
 
 async function callClaudeApi(model, systemPrompt, messages) {
