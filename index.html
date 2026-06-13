@@ -2237,54 +2237,50 @@ async function callClaudeWithPrompt(b64, mediaType, prompt) {
 }
 
 async function callClaude(b64, mediaType, _prompt) {
-  const mode   = getOutputMode();
-  const lang   = getTranslateLang();
-  const prompt = _prompt || (mode === 'modernize' ? PROMPT_MODERNIZE() : PROMPT_TRANSLATE(lang));
-  const body   = {
-    model: getModel(),
-    max_tokens: 4000,
-    system: prompt,
-    messages: [{
-      role: 'user',
-      content: [
-        { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
-        { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' }
-      ]
-    }]
-  };
+  const mode = getOutputMode();
+  const lang = getTranslateLang();
+  const latin = latinEnabled() ? 1 : 0;
 
-  let res;
   if (isHostedMode()) {
-    // Route through paid worker (no API key needed)
-    res = await fetch(`${WORKER_URL}/api/claude`, {
+    const res = await fetch(`${WORKER_URL}/api/translate-image`, {
       method: 'POST',
       headers: hostedAuthHeaders(),
-      body: JSON.stringify(body),
+      body: JSON.stringify({ image_b64: b64, media_type: mediaType, mode, lang, latin }),
     });
-  } else {
-    const apiKey = getApiKey();
-    if (!apiKey) throw new Error(t('error_apikey'));
-    res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify(body),
-    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (data.error === 'no_credits') throw new Error(t('error_no_credits') || 'No credits remaining. Please purchase more pages.');
+      throw new Error(data.error?.message || data.error || JSON.stringify(data));
+    }
+    if (data.credits_remaining !== undefined) updateCreditsBadge(data.credits_remaining);
+    if (!data.result) throw new Error(t('error_no_json') || 'No result');
+    return data.result;
   }
 
+  // Direct API call (personal key mode)
+  const apiKey = getApiKey();
+  if (!apiKey) throw new Error(t('error_apikey'));
+  const prompt = _prompt || (mode === 'modernize' ? PROMPT_MODERNIZE() : PROMPT_TRANSLATE(lang));
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: getModel(),
+      max_tokens: 4000,
+      system: prompt,
+      messages: [{ role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
+        { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' }
+      ]}]
+    }),
+  });
   const data = await res.json();
-  if (!res.ok) {
-    if (data.error === 'no_credits') throw new Error(t('error_no_credits') || 'No credits remaining. Please purchase more pages.');
-    throw new Error(data.error?.message || JSON.stringify(data));
-  }
-
-  // Update credits badge if running in hosted mode
-  if (data.credits_remaining !== undefined) updateCreditsBadge(data.credits_remaining);
-
+  if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
   const raw = (data.content || []).map(b => b.text || '').join('');
   const m = raw.match(/\{[\s\S]*\}/);
   if (!m) throw new Error(t('error_no_json') + ': ' + raw.slice(0, 300));
