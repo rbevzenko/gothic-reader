@@ -228,8 +228,8 @@ function getPackages() {
   } catch {}
   return {
     pages_100:  { credits: 100,  amount_eur: 5.00,  amount_rub: 490,  price_id: process.env.STRIPE_PRICE_100  || '' },
-    pages_500:  { credits: 500,  amount_eur: 15.00, amount_rub: 1490, price_id: process.env.STRIPE_PRICE_500  || '' },
-    pages_1000: { credits: 1000, amount_eur: 25.00, amount_rub: 2490, price_id: process.env.STRIPE_PRICE_1000 || '' },
+    pages_500:  { credits: 500,  amount_eur: 20.00, amount_rub: 1890, price_id: process.env.STRIPE_PRICE_500  || '' },
+    pages_1000: { credits: 1000, amount_eur: 35.00, amount_rub: 3290, price_id: process.env.STRIPE_PRICE_1000 || '' },
   };
 }
 
