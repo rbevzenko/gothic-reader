@@ -193,7 +193,7 @@ tr:hover td { background: #f9fafb; }
     <!-- Recent activity -->
     <div class="card">
       <div class="card-header">
-        <span class="card-title">Recent API activity</span>
+        <span class="card-title">Recent processing history</span>
       </div>
       <div id="activity-body">
         <div class="empty-state">Loading…</div>
@@ -409,15 +409,20 @@ function renderActivity(me) {
   const el   = document.getElementById('activity-body');
   if (!rows.length) { el.innerHTML = '<div class="empty-state">No pages processed yet</div>'; return; }
 
+  // Group consecutive rows by date, count pages per day
+  const byDate = {};
+  rows.forEach(r => {
+    const day = fmtDate(r.created_at);
+    if (!byDate[day]) byDate[day] = 0;
+    byDate[day]++;
+  });
+
   el.innerHTML = `<table>
-    <thead><tr><th>Date</th><th>Model</th><th>Tokens in</th><th>Tokens out</th><th>Cost</th></tr></thead>
-    <tbody>${rows.map(r => `
+    <thead><tr><th>Date</th><th>Pages processed</th></tr></thead>
+    <tbody>${Object.entries(byDate).map(([day, count]) => `
       <tr>
-        <td>${fmtDate(r.created_at)}</td>
-        <td><span class="badge badge-blue">${shortModel(r.model)}</span></td>
-        <td>${r.input_tokens.toLocaleString()}</td>
-        <td>${r.output_tokens.toLocaleString()}</td>
-        <td style="color:#dc2626">$${r.cost_usd.toFixed(4)}</td>
+        <td>${day}</td>
+        <td>${count} page${count !== 1 ? 's' : ''}</td>
       </tr>`).join('')}
     </tbody>
   </table>`;
