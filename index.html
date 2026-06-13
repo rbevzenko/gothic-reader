@@ -768,15 +768,27 @@
 
 <!-- Buy credits modal -->
 <div id="buy-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100;align-items:center;justify-content:center;">
-  <div style="background:var(--surface);border-radius:var(--radius);padding:1.5rem;max-width:380px;width:90%;box-shadow:var(--shadow-md);">
-    <h2 style="font-size:1rem;font-weight:600;margin-bottom:0.25rem;">Buy Pages</h2>
-    <p style="font-size:0.8rem;color:var(--text-2);margin-bottom:1.25rem;">Credits never expire. Each page = 1 credit.</p>
-    <div style="display:flex;flex-direction:column;gap:0.6rem;margin-bottom:1.25rem;">
-      <button class="pkg-btn" onclick="openCheckout('pages_100')"  style="text-align:left;padding:0.7rem 1rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2);cursor:pointer;font-family:inherit;font-size:0.85rem;"><strong>100 pages</strong> — €3.90 <span style="font-size:0.75rem;color:var(--text-3)">(€0.039 / page)</span></button>
-      <button class="pkg-btn" onclick="openCheckout('pages_500')"  style="text-align:left;padding:0.7rem 1rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2);cursor:pointer;font-family:inherit;font-size:0.85rem;"><strong>500 pages</strong> — €14.90 <span style="font-size:0.75rem;color:var(--text-3)">(€0.030 / page)</span></button>
-      <button class="pkg-btn" onclick="openCheckout('pages_1000')" style="text-align:left;padding:0.7rem 1rem;border:2px solid var(--accent);border-radius:var(--radius-sm);background:#eff6ff;cursor:pointer;font-family:inherit;font-size:0.85rem;"><strong>1000 pages</strong> — €24.90 <span style="font-size:0.75rem;color:var(--text-3)">(€0.025 / page)</span> ⭐ Best value</button>
+  <div style="background:var(--surface);border-radius:var(--radius);padding:1.5rem;max-width:420px;width:90%;box-shadow:var(--shadow-md);">
+    <h2 style="font-size:1rem;font-weight:600;margin-bottom:0.25rem;" data-i18n="buy_pages_title">Buy Pages</h2>
+    <p style="font-size:0.8rem;color:var(--text-2);margin-bottom:1rem;" data-i18n="buy_pages_sub">Credits never expire. Each page = 1 credit.</p>
+
+    <!-- Stripe (international cards) -->
+    <div style="font-size:0.72rem;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;" data-i18n="buy_intl">International card (Stripe)</div>
+    <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1rem;">
+      <button class="pkg-btn" onclick="openCheckout('pages_100','stripe')"  style="text-align:left;padding:0.6rem 1rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2);cursor:pointer;font-family:inherit;font-size:0.85rem;"><strong>100 pages</strong> — €5 <span style="font-size:0.75rem;color:var(--text-3)">(€0.05 / page)</span></button>
+      <button class="pkg-btn" onclick="openCheckout('pages_500','stripe')"  style="text-align:left;padding:0.6rem 1rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2);cursor:pointer;font-family:inherit;font-size:0.85rem;"><strong>500 pages</strong> — €20 <span style="font-size:0.75rem;color:var(--text-3)">(€0.04 / page)</span></button>
+      <button class="pkg-btn" onclick="openCheckout('pages_1000','stripe')" style="text-align:left;padding:0.6rem 1rem;border:2px solid var(--accent);border-radius:var(--radius-sm);background:#eff6ff;cursor:pointer;font-family:inherit;font-size:0.85rem;"><strong>1000 pages</strong> — €35 <span style="font-size:0.75rem;color:var(--text-3)">(€0.035 / page)</span> ⭐ Best value</button>
     </div>
-    <button onclick="hideBuyModal()" style="font-family:inherit;font-size:0.8rem;padding:0.4rem 1rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:none;cursor:pointer;color:var(--text-2);">Cancel</button>
+
+    <!-- YooKassa (Russian cards) -->
+    <div style="font-size:0.72rem;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;" data-i18n="buy_ru">Russian card (ЮKassa)</div>
+    <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1.25rem;">
+      <button class="pkg-btn" onclick="openCheckout('pages_100','ru')"  style="text-align:left;padding:0.6rem 1rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2);cursor:pointer;font-family:inherit;font-size:0.85rem;"><strong>100 pages</strong> — 475 ₽</button>
+      <button class="pkg-btn" onclick="openCheckout('pages_500','ru')"  style="text-align:left;padding:0.6rem 1rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2);cursor:pointer;font-family:inherit;font-size:0.85rem;"><strong>500 pages</strong> — 1 900 ₽</button>
+      <button class="pkg-btn" onclick="openCheckout('pages_1000','ru')" style="text-align:left;padding:0.6rem 1rem;border:2px solid var(--accent);border-radius:var(--radius-sm);background:#eff6ff;cursor:pointer;font-family:inherit;font-size:0.85rem;"><strong>1000 pages</strong> — 3 325 ₽ ⭐ Best value</button>
+    </div>
+
+    <button onclick="hideBuyModal()" style="font-family:inherit;font-size:0.8rem;padding:0.4rem 1rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:none;cursor:pointer;color:var(--text-2);" data-i18n="cancel_btn">Cancel</button>
   </div>
 </div>
 
@@ -990,6 +1002,10 @@ const TRANSLATIONS = {
     page_to_ph: 'to',
     page_list: 'List',
     cancel_btn: 'Cancel',
+    buy_pages_title: 'Buy Pages',
+    buy_pages_sub: 'Credits never expire. Each page = 1 credit.',
+    buy_intl: 'International card (Stripe)',
+    buy_ru: 'Russian card (ЮKassa)',
     save_pdf_btn: '↓ Save result as PDF',
     orig_panel_title: 'Original · Fraktur',
     orig_empty: 'Load a PDF or select a page',
@@ -1060,6 +1076,10 @@ const TRANSLATIONS = {
     page_to_ph: 'bis',
     page_list: 'Liste',
     cancel_btn: 'Abbrechen',
+    buy_pages_title: 'Seiten kaufen',
+    buy_pages_sub: 'Credits verfallen nicht. 1 Seite = 1 Credit.',
+    buy_intl: 'Internationale Karte (Stripe)',
+    buy_ru: 'Russische Karte (ЮKassa)',
     save_pdf_btn: '↓ Ergebnis als PDF speichern',
     orig_panel_title: 'Original · Fraktur',
     orig_empty: 'PDF laden oder Seite auswählen',
@@ -1129,6 +1149,10 @@ const TRANSLATIONS = {
     page_to_ph: 'до',
     page_list: 'Список',
     cancel_btn: 'Отмена',
+    buy_pages_title: 'Купить страницы',
+    buy_pages_sub: 'Кредиты не сгорают. 1 страница = 1 кредит.',
+    buy_intl: 'Иностранная карта (Stripe)',
+    buy_ru: 'Российская карта (ЮKassa)',
     save_pdf_btn: '↓ Сохранить результат как PDF',
     orig_panel_title: 'Оригинал · Fraktur',
     orig_empty: 'Загрузите PDF или выберите страницу',
@@ -1198,6 +1222,10 @@ const TRANSLATIONS = {
     page_to_ph: 'à',
     page_list: 'Liste',
     cancel_btn: 'Annuler',
+    buy_pages_title: 'Acheter des pages',
+    buy_pages_sub: 'Les crédits n\'expirent pas. 1 page = 1 crédit.',
+    buy_intl: 'Carte internationale (Stripe)',
+    buy_ru: 'Carte russe (ЮKassa)',
     save_pdf_btn: '↓ Enregistrer le résultat en PDF',
     orig_panel_title: 'Original · Fraktur',
     orig_empty: 'Chargez un PDF ou sélectionnez une page',
@@ -1509,17 +1537,18 @@ async function fetchCredits() {
   } catch { return null; }
 }
 
-async function openCheckout(packageId) {
+async function openCheckout(packageId, method = 'stripe') {
   if (!WORKER_URL) return;
+  const endpoint = method === 'ru' ? '/api/checkout-ru' : '/api/checkout';
   try {
-    const r = await fetch(`${WORKER_URL}/api/checkout`, {
+    const r = await fetch(`${WORKER_URL}${endpoint}`, {
       method: 'POST',
       headers: hostedAuthHeaders(),
       body: JSON.stringify({
         uid: getOrCreateUid(),
         package_id: packageId,
         success_url: location.origin + '/account?payment=ok',
-        cancel_url:  location.href + '?payment=cancel',
+        cancel_url:  location.origin + '/?payment=cancel',
       }),
     });
     const d = await r.json();
