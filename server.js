@@ -221,15 +221,17 @@ function getUidFromRequest(req) {
 
 // ── Package config (can be overridden via admin settings) ────────────────────
 
+const EUR_TO_RUB = parseFloat(process.env.EUR_TO_RUB || '95');
+
 function getPackages() {
   try {
     const s = getSetting('packages');
     if (s) return JSON.parse(s);
   } catch {}
   return {
-    pages_100:  { credits: 100,  amount_eur: 5.00,  amount_rub: 490,  price_id: process.env.STRIPE_PRICE_100  || '' },
-    pages_500:  { credits: 500,  amount_eur: 20.00, amount_rub: 1890, price_id: process.env.STRIPE_PRICE_500  || '' },
-    pages_1000: { credits: 1000, amount_eur: 35.00, amount_rub: 3290, price_id: process.env.STRIPE_PRICE_1000 || '' },
+    pages_100:  { credits: 100,  amount_eur: 5.00,  amount_rub: Math.round(5.00  * EUR_TO_RUB), price_id: process.env.STRIPE_PRICE_100  || '' },
+    pages_500:  { credits: 500,  amount_eur: 20.00, amount_rub: Math.round(20.00 * EUR_TO_RUB), price_id: process.env.STRIPE_PRICE_500  || '' },
+    pages_1000: { credits: 1000, amount_eur: 35.00, amount_rub: Math.round(35.00 * EUR_TO_RUB), price_id: process.env.STRIPE_PRICE_1000 || '' },
   };
 }
 
