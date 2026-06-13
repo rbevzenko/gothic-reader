@@ -605,8 +605,9 @@ Regeln:
 3. Lateinische Passagen bleiben im Original.
 4. Jeder Absatz = ein separates Element im Array.
 5. Fußnoten vollständig aufnehmen als eigene Elemente in paragraphs.
-6. Antworte NUR mit gültigem JSON — kein Markdown, keine Präambel.
-7. Alle Anführungszeichen in Strings escapen: \"
+6. Sperrsatz (g e s p e r r t e r  T e x t) — Leerzeichen zwischen Buchstaben entfernen, Wort normal schreiben.
+7. Antworte NUR mit gültigem JSON — kein Markdown, keine Präambel.
+8. Alle Anführungszeichen in Strings escapen: \"
 
 {
   "title": "Seitentitel oder leerer String",
@@ -641,9 +642,10 @@ Regeln:
 3. Lateinische Passagen bleiben im Original.
 4. Jeder Absatz des Originals = ein separates Element im Array.
 5. FUßNOTEN PFLICHT. Fußnoten am Seitenende (markiert mit Ziffern 1), 2), Sternchen * usw.) vollständig modernisieren und als eigene Elemente in paragraphs aufnehmen. Keine Fußnote auslassen.
-5. ${latin ? 'Lateinische Fragmente separat mit Übersetzung und Quelle auflisten.' : 'latin_fragments immer als leeres Array zurückgeben.'}
-6. Antworte NUR mit gültigem JSON — kein Markdown, keine Präambel.
-7. WICHTIG: Alle Anführungszeichen innerhalb von Strings müssen escaped werden: \" — niemals rohe " innerhalb eines JSON-String-Werts.
+6. Sperrsatz (g e s p e r r t e r  T e x t) — Leerzeichen zwischen Buchstaben entfernen, Wort normal schreiben.
+7. ${latin ? 'Lateinische Fragmente separat mit Übersetzung und Quelle auflisten.' : 'latin_fragments immer als leeres Array zurückgeben.'}
+8. Antworte NUR mit gültigem JSON — kein Markdown, keine Präambel.
+9. WICHTIG: Alle Anführungszeichen innerhalb von Strings müssen escaped werden: \" — niemals rohe " innerhalb eines JSON-String-Werts.
 
 {
   "title": "Seitentitel auf modernem Deutsch, oder leerer String",
