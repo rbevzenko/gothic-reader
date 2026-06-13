@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fraktur — Account</title>
+<link rel="icon" type="image/png" href="/logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -94,12 +95,27 @@ tr:hover td { background: #f9fafb; }
 
 /* Password change */
 #change-password-form { display: none; }
+
+/* Projects */
+.project-list { display: flex; flex-direction: column; }
+.project-item { display: flex; align-items: center; gap: 1rem; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); }
+.project-item:last-child { border-bottom: none; }
+.project-item:hover { background: #f9fafb; }
+.proj-icon { font-size: 1.5rem; flex-shrink: 0; }
+.proj-info { flex: 1; min-width: 0; }
+.proj-name { font-weight: 600; font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.proj-meta { font-size: 0.75rem; color: var(--text-2); margin-top: 0.15rem; }
+.proj-progress { width: 120px; flex-shrink: 0; }
+.prog-bar { height: 4px; background: var(--border); border-radius: 99px; overflow: hidden; margin-bottom: 0.2rem; }
+.prog-fill { height: 100%; background: var(--green); border-radius: 99px; transition: width 0.3s; }
+.prog-label { font-size: 0.7rem; color: var(--text-3); text-align: right; }
+.proj-actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
 </style>
 </head>
 <body>
 
 <div id="header">
-  <a class="logo" href="/">📖 Fraktur</a>
+  <a class="logo" href="/"><img src="/logo.png" style="height:28px;width:auto;vertical-align:middle"> Fraktur</a>
   <div class="spacer"></div>
   <div id="header-actions">
     <span id="header-email" style="font-size:0.82rem;color:var(--text-2)"></span>
@@ -163,10 +179,21 @@ tr:hover td { background: #f9fafb; }
       </div>
     </div>
 
+    <!-- Projects -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">My Projects</span>
+        <span style="font-size:0.75rem;color:var(--text-3)">Pages saved automatically when processing</span>
+      </div>
+      <div id="projects-body">
+        <div class="empty-state">Loading…</div>
+      </div>
+    </div>
+
     <!-- Recent activity -->
     <div class="card">
       <div class="card-header">
-        <span class="card-title">Recent activity</span>
+        <span class="card-title">Recent API activity</span>
       </div>
       <div id="activity-body">
         <div class="empty-state">Loading…</div>
@@ -216,22 +243,41 @@ tr:hover td { background: #f9fafb; }
   <div id="modal">
     <h2>Buy Pages</h2>
     <p>Credits never expire. Each page = 1 credit.</p>
-    <div class="pkg-list">
-      <button class="pkg-item" onclick="checkout('pages_100')">
+    <div style="display:flex;gap:0.5rem;margin-bottom:1rem">
+      <button id="pay-stripe-btn" class="btn btn-secondary" style="flex:1;font-size:0.82rem" onclick="setPayMethod('stripe')">💳 Card (EUR)</button>
+      <button id="pay-ru-btn"     class="btn btn-secondary" style="flex:1;font-size:0.82rem" onclick="setPayMethod('ru')">🇷🇺 ЮКасса (₽)</button>
+    </div>
+    <div class="pkg-list" id="pkg-list-stripe">
+      <button class="pkg-item" onclick="checkout('pages_100','stripe')">
         <div class="pkg-name">100 pages</div>
-        <div class="pkg-price">€3.90 · €0.039 per page</div>
+        <div class="pkg-price">€5.00 · €0.050 per page</div>
       </button>
-      <button class="pkg-item" onclick="checkout('pages_500')">
+      <button class="pkg-item" onclick="checkout('pages_500','stripe')">
         <div class="pkg-name">500 pages</div>
-        <div class="pkg-price">€14.90 · €0.030 per page</div>
+        <div class="pkg-price">€15.00 · €0.030 per page</div>
       </button>
-      <button class="pkg-item best" onclick="checkout('pages_1000')">
+      <button class="pkg-item best" onclick="checkout('pages_1000','stripe')">
         <span class="pkg-badge">Best value</span>
         <div class="pkg-name">1000 pages</div>
-        <div class="pkg-price">€24.90 · €0.025 per page</div>
+        <div class="pkg-price">€25.00 · €0.025 per page</div>
       </button>
     </div>
-    <button onclick="closeBuyModal()" class="btn btn-secondary" style="width:100%">Cancel</button>
+    <div class="pkg-list" id="pkg-list-ru" style="display:none">
+      <button class="pkg-item" onclick="checkout('pages_100','ru')">
+        <div class="pkg-name">100 страниц</div>
+        <div class="pkg-price">490 ₽ · 4.90 ₽ за страницу</div>
+      </button>
+      <button class="pkg-item" onclick="checkout('pages_500','ru')">
+        <div class="pkg-name">500 страниц</div>
+        <div class="pkg-price">1490 ₽ · 2.98 ₽ за страницу</div>
+      </button>
+      <button class="pkg-item best" onclick="checkout('pages_1000','ru')">
+        <span class="pkg-badge">Выгоднее всего</span>
+        <div class="pkg-name">1000 страниц</div>
+        <div class="pkg-price">2490 ₽ · 2.49 ₽ за страницу</div>
+      </button>
+    </div>
+    <button onclick="closeBuyModal()" class="btn btn-secondary" style="width:100%;margin-top:0.5rem">Cancel</button>
   </div>
 </div>
 
@@ -344,6 +390,7 @@ function showAccount(me) {
   updateBalance(me);
   renderActivity(me);
   renderPayments(me);
+  loadProjects();
 }
 
 function updateBalance(me) {
@@ -399,11 +446,18 @@ function renderPayments(me) {
 function openBuyModal()  { document.getElementById('modal-overlay').classList.add('open'); }
 function closeBuyModal() { document.getElementById('modal-overlay').classList.remove('open'); }
 
-async function checkout(packageId) {
-  const token = localStorage.getItem(TOKEN_KEY);
-  const uid   = localStorage.getItem(UID_KEY);
+function setPayMethod(method) {
+  document.getElementById('pkg-list-stripe').style.display = method === 'stripe' ? 'flex' : 'none';
+  document.getElementById('pkg-list-ru').style.display     = method === 'ru'     ? 'flex' : 'none';
+  document.getElementById('pay-stripe-btn').style.fontWeight = method === 'stripe' ? '700' : '400';
+  document.getElementById('pay-ru-btn').style.fontWeight     = method === 'ru'     ? '700' : '400';
+}
+
+async function checkout(packageId, method = 'stripe') {
+  const uid = userData?.uid || localStorage.getItem(UID_KEY);
+  const endpoint = method === 'ru' ? '/api/checkout-ru' : '/api/checkout';
   try {
-    const d = await apiFetch('/api/checkout', 'POST', {
+    const d = await apiFetch(endpoint, 'POST', {
       uid,
       package_id:  packageId,
       success_url: location.origin + '/account?payment=ok',
@@ -434,6 +488,55 @@ async function changePassword(e) {
   } catch (e) { err.textContent = e.message; err.style.display = 'block'; }
 }
 
+// ── Projects ──────────────────────────────────────────────────────────────────
+
+async function loadProjects() {
+  const el = document.getElementById('projects-body');
+  try {
+    const projects = await apiFetch('/api/projects');
+    if (!projects.length) {
+      el.innerHTML = '<div class="empty-state">No projects yet — open a PDF and start processing</div>';
+      return;
+    }
+    el.innerHTML = `<div class="project-list">${projects.map(p => projectHTML(p)).join('')}</div>`;
+  } catch {
+    el.innerHTML = '<div class="empty-state">Sign in to see your projects</div>';
+  }
+}
+
+function projectHTML(p) {
+  const done    = p.pages_done || 0;
+  const total   = p.total_pages || 0;
+  const pct     = total > 0 ? Math.round(done / total * 100) : 0;
+  const date    = fmtDate(p.updated_at);
+  return `
+    <div class="project-item">
+      <div class="proj-icon">📄</div>
+      <div class="proj-info">
+        <div class="proj-name" title="${escHtml(p.filename)}">${escHtml(p.name)}</div>
+        <div class="proj-meta">${done} of ${total} pages processed · ${date}${p.last_job_sec ? ' · ⏱ ' + fmtDuration(p.last_job_sec) : ''}</div>
+      </div>
+      <div class="proj-progress">
+        <div class="prog-bar"><div class="prog-fill" style="width:${pct}%"></div></div>
+        <div class="prog-label">${pct}%</div>
+      </div>
+      <div class="proj-actions">
+        <a href="/?project=${p.id}" class="btn btn-secondary" style="font-size:0.75rem;padding:0.25rem 0.7rem;text-decoration:none">Open</a>
+        <button onclick="deleteProject(${p.id})" class="btn btn-danger" style="font-size:0.75rem;padding:0.25rem 0.6rem">✕</button>
+      </div>
+    </div>`;
+}
+
+async function deleteProject(id) {
+  if (!confirm('Delete this project? Saved pages will be lost.')) return;
+  await apiFetch(`/api/projects/${id}`, 'DELETE');
+  loadProjects();
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function apiFetch(url, method = 'GET', body = null) {
@@ -451,6 +554,12 @@ async function apiFetch(url, method = 'GET', body = null) {
 
 function fmtDate(ts) {
   return ts ? new Date(ts * 1000).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+}
+
+function fmtDuration(sec) {
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return s > 0 ? `${m}m ${s}s` : `${m}m`;
 }
 
 function shortModel(m) {

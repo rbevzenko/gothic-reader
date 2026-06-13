@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>About — Fraktur Reader</title>
+<link rel="icon" type="image/png" href="/logo.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#2563eb">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --accent: #2563eb; --accent-dark: #1d4ed8;
+    --text-1: #111827; --text-2: #4b5563; --text-3: #9ca3af;
+    --border: #e5e7eb; --surface: #fff; --surface-2: #f9fafb;
+    --radius: 10px; --shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; color: var(--text-1); background: var(--surface-2); line-height: 1.6; }
+
+  nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0.9rem 1.5rem; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; gap: 1rem; flex-wrap: wrap; }
+  .nav-logo { display: flex; align-items: center; gap: 0.6rem; text-decoration: none; font-family: 'Playfair Display', serif; font-size: 1.2rem; font-weight: 600; color: var(--text-1); }
+  .nav-logo img { height: 28px; }
+  .nav-right { display: flex; align-items: center; gap: 0.75rem; }
+  .lang-btn { background: none; border: 1px solid var(--border); border-radius: 5px; padding: 0.2rem 0.5rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; color: var(--text-2); font-family: inherit; }
+  .lang-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .nav-cta { background: var(--accent); color: #fff; text-decoration: none; padding: 0.45rem 1rem; border-radius: 6px; font-size: 0.85rem; font-weight: 600; }
+
+  .hero { background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%); color: #fff; text-align: center; padding: 5rem 1.5rem 4rem; }
+  .hero h1 { font-family: 'Playfair Display', serif; font-size: clamp(1.8rem, 5vw, 3rem); font-weight: 700; margin-bottom: 1rem; line-height: 1.2; }
+  .hero p { font-size: 1.05rem; opacity: 0.85; max-width: 600px; margin: 0 auto 2rem; }
+  .hero-btn { display: inline-block; background: #fff; color: var(--accent); font-weight: 700; padding: 0.75rem 2rem; border-radius: 8px; text-decoration: none; font-size: 1rem; }
+
+  .container { max-width: 860px; margin: 0 auto; padding: 0 1.5rem; }
+  section { padding: 4rem 0; }
+  section + section { border-top: 1px solid var(--border); }
+  .section-label { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); margin-bottom: 0.5rem; }
+  h2 { font-family: 'Playfair Display', serif; font-size: clamp(1.4rem, 3vw, 1.9rem); font-weight: 600; margin-bottom: 1rem; }
+  .lead { font-size: 1rem; color: var(--text-2); max-width: 680px; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1rem; margin-top: 2rem; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; box-shadow: var(--shadow); }
+  .card-icon { font-size: 1.8rem; margin-bottom: 0.5rem; }
+  .card h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.25rem; }
+  .card p { font-size: 0.82rem; color: var(--text-2); }
+
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-top: 2rem; }
+  .step { display: flex; gap: 1rem; align-items: flex-start; }
+  .step-num { background: var(--accent); color: #fff; font-weight: 700; font-size: 0.85rem; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; }
+  .step h3 { font-size: 0.92rem; font-weight: 600; margin-bottom: 0.2rem; }
+  .step p { font-size: 0.82rem; color: var(--text-2); }
+
+  .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1rem; margin-top: 2rem; }
+  .plan { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; box-shadow: var(--shadow); position: relative; }
+  .plan.best { border-color: var(--accent); border-width: 2px; }
+  .plan-badge { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: var(--accent); color: #fff; font-size: 0.7rem; font-weight: 700; padding: 0.2rem 0.7rem; border-radius: 20px; white-space: nowrap; }
+  .plan-name { font-size: 0.85rem; font-weight: 600; color: var(--text-2); margin-bottom: 0.5rem; }
+  .plan-price { font-size: 2rem; font-weight: 700; line-height: 1; }
+  .plan-price span { font-size: 1rem; font-weight: 400; color: var(--text-2); }
+  .plan-pages { font-size: 0.82rem; color: var(--text-2); margin: 0.4rem 0 0.5rem; }
+  .plan-per { font-size: 0.75rem; color: var(--text-3); }
+  .plan-free { background: #eff6ff; border-color: #bfdbfe; }
+  .plan-free .plan-price { color: var(--accent); font-size: 1.5rem; }
+  .payment-note { margin-top: 1.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; font-size: 0.85rem; color: var(--text-2); display: flex; align-items: center; gap: 0.6rem; }
+
+  .contact-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 2rem; box-shadow: var(--shadow); margin-top: 2rem; display: flex; gap: 2rem; flex-wrap: wrap; align-items: center; }
+  .contact-box p { color: var(--text-2); font-size: 0.95rem; flex: 1; min-width: 200px; }
+  .contact-btn { background: var(--accent); color: #fff; text-decoration: none; padding: 0.65rem 1.5rem; border-radius: 8px; font-weight: 600; font-size: 0.9rem; white-space: nowrap; }
+
+  footer { background: var(--surface); border-top: 1px solid var(--border); padding: 1.5rem; text-align: center; font-size: 0.8rem; color: var(--text-3); }
+  footer a { color: var(--text-2); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<nav>
+  <a class="nav-logo" href="/">
+    <img src="/logo.png" alt="Fraktur" onerror="this.style.display='none'">
+    Fraktur Reader
+  </a>
+  <div class="nav-right">
+    <div style="display:flex;gap:0.25rem;">
+      <button class="lang-btn" data-lang="en" onclick="setLang('en')">EN</button>
+      <button class="lang-btn" data-lang="de" onclick="setLang('de')">DE</button>
+      <button class="lang-btn" data-lang="ru" onclick="setLang('ru')">RU</button>
+      <button class="lang-btn" data-lang="fr" onclick="setLang('fr')">FR</button>
+    </div>
+    <a class="nav-cta" href="/" data-i18n="nav_open_app">Open App →</a>
+  </div>
+</nav>
+
+<div class="hero">
+  <h1 data-i18n="hero_title">Read Gothic Script.<br>Understand Everything.</h1>
+  <p data-i18n="hero_sub">AI-powered tool that reads Fraktur (Gothic script) and turns 19th-century German legal texts into plain, modern language.</p>
+  <a class="hero-btn" href="/" data-i18n="hero_btn">Try for free →</a>
+</div>
+
+<div class="container">
+
+  <section id="what">
+    <div class="section-label" data-i18n="s_what_label">What is it</div>
+    <h2 data-i18n="s_what_title">Gothic script made readable</h2>
+    <p class="lead" data-i18n="s_what_body">Fraktur Reader uses AI to recognize and modernize texts printed in Gothic typefaces. Upload a PDF or paste a link — get a clean, readable translation in seconds.</p>
+  </section>
+
+  <section id="audience">
+    <div class="section-label" data-i18n="s_for_label">For whom</div>
+    <h2 data-i18n="s_for_title">Built for researchers and legal professionals</h2>
+    <p class="lead" data-i18n="s_for_body">Anyone working with 19th-century German sources will find Fraktur Reader indispensable.</p>
+    <div class="cards">
+      <div class="card">
+        <div class="card-icon">⚖️</div>
+        <h3 data-i18n="card_lawyers_title">Lawyers</h3>
+        <p data-i18n="card_lawyers_body">Historical legal texts, court decisions, commentaries on Roman and German law</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🎓</div>
+        <h3 data-i18n="card_researchers_title">Researchers</h3>
+        <p data-i18n="card_researchers_body">Academic work with primary sources from German archives and libraries</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">📚</div>
+        <h3 data-i18n="card_historians_title">Historians</h3>
+        <p data-i18n="card_historians_body">Documents, memoirs, newspapers and books from the 19th and early 20th centuries</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🧑‍🎓</div>
+        <h3 data-i18n="card_students_title">Students</h3>
+        <p data-i18n="card_students_body">Study historical law and German legal thought from original sources</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="section-label" data-i18n="s_how_label">How it works</div>
+    <h2 data-i18n="s_how_title">Three ways to use it</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div>
+          <h3 data-i18n="step1_title">Upload a PDF</h3>
+          <p data-i18n="step1_body">Upload a scanned book or document — the app processes each page automatically</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div>
+          <h3 data-i18n="step2_title">Paste a link</h3>
+          <p data-i18n="step2_body">Copy a page URL from the Max Planck Institute library — the app fetches and translates it instantly</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div>
+          <h3 data-i18n="step3_title">Upload a screenshot</h3>
+          <p data-i18n="step3_body">Take a photo or screenshot of any Gothic text and upload it — works with printed and handwritten sources</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="pricing">
+    <div class="section-label" data-i18n="s_price_label">Pricing</div>
+    <h2 data-i18n="s_price_title">Simple, per-page pricing</h2>
+    <p class="lead" data-i18n="s_price_body">Pay only for what you process. No subscription required.</p>
+    <div class="pricing-grid">
+      <div class="plan plan-free">
+        <div class="plan-name" data-i18n="plan_free_name">Free to start</div>
+        <div class="plan-price" style="color:var(--accent);font-size:1.5rem">10 <span data-i18n="plan_pages">pages</span></div>
+        <div class="plan-pages" data-i18n="plan_free_sub">Free on registration</div>
+        <div class="plan-per" data-i18n="plan_free_note">No credit card required</div>
+      </div>
+      <div class="plan">
+        <div class="plan-name">Starter</div>
+        <div class="plan-price">€5</div>
+        <div class="plan-pages">100 <span data-i18n="plan_pages">pages</span></div>
+        <div class="plan-per">€0.05 / <span data-i18n="plan_page">page</span></div>
+      </div>
+      <div class="plan">
+        <div class="plan-name">Standard</div>
+        <div class="plan-price">€15</div>
+        <div class="plan-pages">500 <span data-i18n="plan_pages">pages</span></div>
+        <div class="plan-per">€0.03 / <span data-i18n="plan_page">page</span></div>
+      </div>
+      <div class="plan best">
+        <div class="plan-badge" data-i18n="plan_best">⭐ Best value</div>
+        <div class="plan-name">Pro</div>
+        <div class="plan-price">€25</div>
+        <div class="plan-pages">1000 <span data-i18n="plan_pages">pages</span></div>
+        <div class="plan-per">€0.025 / <span data-i18n="plan_page">page</span></div>
+      </div>
+    </div>
+    <div class="payment-note">
+      💳 <span data-i18n="payment_note">Pay with a Russian card via YooKassa or with any international bank card via Stripe.</span>
+    </div>
+  </section>
+
+  <section id="contact">
+    <div class="section-label" data-i18n="s_contact_label">Contact</div>
+    <h2 data-i18n="s_contact_title">Questions or feedback?</h2>
+    <div class="contact-box">
+      <p data-i18n="s_contact_body">We're happy to hear from you — whether it's a bug report, a feature request, or just a question about how it works.</p>
+      <a class="contact-btn" href="https://t.me/FrakturAppBot" target="_blank" rel="noopener" data-i18n="s_contact_btn">Write to us →</a>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <p>© 2026 Fraktur Reader · <a href="/" data-i18n="nav_open_app">Open App</a></p>
+</footer>
+
+<script>
+const T = {
+  en: {
+    nav_open_app: 'Open App →',
+    hero_title: 'Read Gothic Script.<br>Understand Everything.',
+    hero_sub: 'AI-powered tool that reads Fraktur (Gothic script) and turns 19th-century German legal texts into plain, modern language.',
+    hero_btn: 'Try for free →',
+    s_what_label: 'What is it',
+    s_what_title: 'Gothic script made readable',
+    s_what_body: 'Fraktur Reader uses AI to recognize and modernize texts printed in Gothic typefaces (Fraktur, Kurrent, Sütterlin). Upload a PDF, paste a link, or upload a screenshot — get a clean, readable translation in seconds.',
+    s_for_label: 'For whom',
+    s_for_title: 'Built for researchers and legal professionals',
+    s_for_body: 'Anyone working with 19th-century German sources will find Fraktur Reader indispensable.',
+    card_lawyers_title: 'Lawyers',
+    card_lawyers_body: 'Historical legal texts, court decisions, commentaries on Roman and German law',
+    card_researchers_title: 'Researchers',
+    card_researchers_body: 'Academic work with primary sources from German archives and libraries',
+    card_historians_title: 'Historians',
+    card_historians_body: 'Documents, memoirs, newspapers and books from the 19th and early 20th centuries',
+    card_students_title: 'Students',
+    card_students_body: 'Study historical law and German legal thought from original sources',
+    s_how_label: 'How it works',
+    s_how_title: 'Three ways to use it',
+    step1_title: 'Upload a PDF',
+    step1_body: 'Upload a scanned book or document — the app processes each page automatically',
+    step2_title: 'Paste a link',
+    step2_body: 'Copy a page URL from the Max Planck Institute library — the app fetches and translates it instantly',
+    step3_title: 'Upload a screenshot',
+    step3_body: 'Take a photo or screenshot of any Gothic text and upload it — works with printed and handwritten sources',
+    s_price_label: 'Pricing',
+    s_price_title: 'Simple, per-page pricing',
+    s_price_body: 'Pay only for what you process. No subscription required.',
+    plan_free_name: 'Free to start',
+    plan_pages: 'pages',
+    plan_page: 'page',
+    plan_free_sub: 'Free on registration',
+    plan_free_note: 'No credit card required',
+    plan_best: '⭐ Best value',
+    payment_note: 'Pay with a Russian card via YooKassa or with any international bank card via Stripe.',
+    s_contact_label: 'Contact',
+    s_contact_title: 'Questions or feedback?',
+    s_contact_body: 'We\'re happy to hear from you — whether it\'s a bug report, a feature request, or just a question about how it works.',
+    s_contact_btn: 'Write to us →',
+  },
+  de: {
+    nav_open_app: 'App öffnen →',
+    hero_title: 'Fraktur lesen.<br>Alles verstehen.',
+    hero_sub: 'KI-gestütztes Werkzeug, das Fraktur erkennt und deutsche Rechtstexte des 19. Jahrhunderts in modernes, verständliches Deutsch überträgt.',
+    hero_btn: 'Kostenlos testen →',
+    s_what_label: 'Was ist das',
+    s_what_title: 'Fraktur wird lesbar',
+    s_what_body: 'Fraktur Reader nutzt KI, um Texte in Fraktur, Kurrent und Sütterlin zu erkennen und zu modernisieren. PDF hochladen, Link einfügen oder Screenshot hochladen — in Sekunden lesbarer Text.',
+    s_for_label: 'Für wen',
+    s_for_title: 'Für Forscher und Juristen',
+    s_for_body: 'Für alle, die mit deutschen Quellen des 19. Jahrhunderts arbeiten.',
+    card_lawyers_title: 'Juristen',
+    card_lawyers_body: 'Historische Rechtstexte, Gerichtsentscheidungen, Kommentare zum römischen und deutschen Recht',
+    card_researchers_title: 'Forscher',
+    card_researchers_body: 'Wissenschaftliche Arbeit mit Primärquellen aus deutschen Archiven und Bibliotheken',
+    card_historians_title: 'Historiker',
+    card_historians_body: 'Dokumente, Memoiren, Zeitungen und Bücher aus dem 19. und frühen 20. Jahrhundert',
+    card_students_title: 'Studierende',
+    card_students_body: 'Historisches Recht und deutsches Rechtsdenken aus Originalquellen studieren',
+    s_how_label: 'So funktioniert es',
+    s_how_title: 'Drei Wege zur Nutzung',
+    step1_title: 'PDF hochladen',
+    step1_body: 'Ein gescanntes Buch oder Dokument hochladen — die App verarbeitet jede Seite automatisch',
+    step2_title: 'Link einfügen',
+    step2_body: 'Eine Seiten-URL aus der Max-Planck-Bibliothek kopieren — die App lädt und übersetzt sofort',
+    step3_title: 'Screenshot hochladen',
+    step3_body: 'Foto oder Screenshot eines gotischen Textes hochladen — funktioniert mit gedruckten und handgeschriebenen Quellen',
+    s_price_label: 'Preise',
+    s_price_title: 'Einfache Seitenpreise',
+    s_price_body: 'Zahlen Sie nur für das, was Sie verarbeiten. Kein Abonnement erforderlich.',
+    plan_free_name: 'Kostenlos starten',
+    plan_pages: 'Seiten',
+    plan_page: 'Seite',
+    plan_free_sub: 'Kostenlos bei Registrierung',
+    plan_free_note: 'Keine Kreditkarte erforderlich',
+    plan_best: '⭐ Bestes Angebot',
+    payment_note: 'Zahlung per russischer Karte über YooKassa oder mit jeder internationalen Bankkarte über Stripe.',
+    s_contact_label: 'Kontakt',
+    s_contact_title: 'Fragen oder Feedback?',
+    s_contact_body: 'Wir freuen uns von Ihnen zu hören — ob Fehlerbericht, Funktionswunsch oder einfach eine Frage.',
+    s_contact_btn: 'Schreiben Sie uns →',
+  },
+  ru: {
+    nav_open_app: 'Открыть приложение →',
+    hero_title: 'Читайте готику.<br>Понимайте всё.',
+    hero_sub: 'Инструмент на основе ИИ, который распознаёт готический шрифт (Fraktur) и переводит немецкие юридические тексты XIX века в понятный современный язык.',
+    hero_btn: 'Попробовать бесплатно →',
+    s_what_label: 'Что это такое',
+    s_what_title: 'Готический шрифт стал читаемым',
+    s_what_body: 'Fraktur Reader использует ИИ для распознавания и модернизации текстов, напечатанных готическим шрифтом (Fraktur, Kurrent, Sütterlin). Загрузите PDF, вставьте ссылку или загрузите скриншот — получите чистый читаемый текст за секунды.',
+    s_for_label: 'Для кого',
+    s_for_title: 'Для исследователей и юристов',
+    s_for_body: 'Незаменим для всех, кто работает с немецкими источниками XIX века.',
+    card_lawyers_title: 'Юристы',
+    card_lawyers_body: 'Исторические правовые тексты, судебные решения, комментарии к римскому и германскому праву',
+    card_researchers_title: 'Исследователи',
+    card_researchers_body: 'Научная работа с первоисточниками из немецких архивов и библиотек',
+    card_historians_title: 'Историки',
+    card_historians_body: 'Документы, мемуары, газеты и книги XIX — начала XX века',
+    card_students_title: 'Студенты',
+    card_students_body: 'Изучение исторического права и немецкой правовой мысли по оригинальным источникам',
+    s_how_label: 'Как это работает',
+    s_how_title: 'Три способа использования',
+    step1_title: 'Загрузить PDF',
+    step1_body: 'Загрузите отсканированную книгу или документ — приложение обработает каждую страницу автоматически',
+    step2_title: 'Вставить ссылку',
+    step2_body: 'Скопируйте URL страницы из библиотеки Института Макса Планка — приложение мгновенно загрузит и переведёт её',
+    step3_title: 'Загрузить скриншот',
+    step3_body: 'Сфотографируйте или сделайте скриншот любого готического текста — работает с печатными и рукописными источниками',
+    s_price_label: 'Цены',
+    s_price_title: 'Простая поpostраничная оплата',
+    s_price_body: 'Платите только за то, что обрабатываете. Подписка не нужна.',
+    plan_free_name: 'Начать бесплатно',
+    plan_pages: 'страниц',
+    plan_page: 'страницу',
+    plan_free_sub: 'Бесплатно при регистрации',
+    plan_free_note: 'Банковская карта не нужна',
+    plan_best: '⭐ Выгоднее всего',
+    payment_note: 'Оплата российской картой через ЮКассу или картой любого иностранного банка через Stripe.',
+    s_contact_label: 'Контакты',
+    s_contact_title: 'Вопросы или обратная связь?',
+    s_contact_body: 'Мы рады обратной связи — будь то сообщение об ошибке, пожелание или просто вопрос о том, как всё работает.',
+    s_contact_btn: 'Написать нам →',
+  },
+  fr: {
+    nav_open_app: 'Ouvrir l\'app →',
+    hero_title: 'Lisez le gothique.<br>Comprenez tout.',
+    hero_sub: 'Outil IA qui reconnaît l\'écriture gothique (Fraktur) et transforme les textes juridiques allemands du XIXe siècle en langage moderne et lisible.',
+    hero_btn: 'Essayer gratuitement →',
+    s_what_label: 'Qu\'est-ce que c\'est',
+    s_what_title: 'L\'écriture gothique rendue lisible',
+    s_what_body: 'Fraktur Reader utilise l\'IA pour reconnaître et moderniser les textes imprimés en caractères gothiques. Téléchargez un PDF, collez un lien ou uploadez une capture d\'écran — obtenez une traduction lisible en quelques secondes.',
+    s_for_label: 'Pour qui',
+    s_for_title: 'Pour les chercheurs et juristes',
+    s_for_body: 'Indispensable pour tous ceux qui travaillent avec des sources allemandes du XIXe siècle.',
+    card_lawyers_title: 'Juristes',
+    card_lawyers_body: 'Textes juridiques historiques, décisions de justice, commentaires sur le droit romain et allemand',
+    card_researchers_title: 'Chercheurs',
+    card_researchers_body: 'Travaux académiques avec sources primaires des archives et bibliothèques allemandes',
+    card_historians_title: 'Historiens',
+    card_historians_body: 'Documents, mémoires, journaux et livres du XIXe et début XXe siècle',
+    card_students_title: 'Étudiants',
+    card_students_body: 'Étudier le droit historique et la pensée juridique allemande à partir de sources originales',
+    s_how_label: 'Comment ça marche',
+    s_how_title: 'Trois façons de l\'utiliser',
+    step1_title: 'Télécharger un PDF',
+    step1_body: 'Téléchargez un livre ou document scanné — l\'application traite chaque page automatiquement',
+    step2_title: 'Coller un lien',
+    step2_body: 'Copiez l\'URL d\'une page de la bibliothèque Max Planck — l\'application la récupère et traduit instantanément',
+    step3_title: 'Uploader une capture',
+    step3_body: 'Prenez une photo ou capture d\'écran de n\'importe quel texte gothique — fonctionne avec les sources imprimées et manuscrites',
+    s_price_label: 'Tarifs',
+    s_price_title: 'Tarification simple à la page',
+    s_price_body: 'Ne payez que ce que vous traitez. Pas d\'abonnement requis.',
+    plan_free_name: 'Commencer gratuitement',
+    plan_pages: 'pages',
+    plan_page: 'page',
+    plan_free_sub: 'Gratuit à l\'inscription',
+    plan_free_note: 'Aucune carte bancaire requise',
+    plan_best: '⭐ Meilleure offre',
+    payment_note: 'Paiement par carte russe via YooKassa ou par toute carte bancaire internationale via Stripe.',
+    s_contact_label: 'Contact',
+    s_contact_title: 'Questions ou retours ?',
+    s_contact_body: 'Nous sommes heureux de vous entendre — que ce soit un rapport de bug, une demande de fonctionnalité ou simplement une question.',
+    s_contact_btn: 'Nous écrire →',
+  }
+};
+
+let lang = localStorage.getItem('gothic_reader_lang') || 'en';
+
+function applyLang() {
+  const d = T[lang] || T.en;
+  document.documentElement.lang = lang;
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const v = d[el.dataset.i18n] ?? (T.en[el.dataset.i18n] ?? el.dataset.i18n);
+    el.innerHTML = v;
+  });
+  document.querySelectorAll('.lang-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.lang === lang);
+  });
+}
+
+function setLang(l) {
+  lang = l;
+  localStorage.setItem('gothic_reader_lang', l);
+  applyLang();
+}
+
+applyLang();
+</script>
+</body>
+</html>

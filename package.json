@@ -10,7 +10,12 @@
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^9.4.3",
+    "canvas": "^3.2.3",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "jsonrepair": "^3.14.0",
+    "multer": "^2.1.1",
+    "pdfjs-dist": "^6.0.227",
+    "stripe": "^22.2.0"
   }
 }

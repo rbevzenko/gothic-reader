@@ -13,6 +13,8 @@
  *   GET  /api/credits?uid=…    — return credit balance (legacy)
  *   POST /api/checkout         — create Stripe Checkout session
  *   POST /api/stripe-webhook   — Stripe webhook → top-up credits
+ *   POST /api/checkout-ru      — create YooKassa payment
+ *   POST /api/yookassa-webhook — YooKassa webhook → top-up credits
  *   GET  /admin                — admin panel (HTTP Basic Auth)
  *   GET  /admin/api/*          — admin API
  *   GET  /account              — user account page
@@ -24,8 +26,15 @@ import Database from 'better-sqlite3';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import path from 'path';
+import { jsonrepair } from 'jsonrepair';
+import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
+import multer from 'multer';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+const execFileAsync = promisify(execFile);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -35,7 +44,7 @@ const PORT = process.env.PORT || 3000;
 
 const MODEL_PRICING = {
   'claude-haiku-4-5-20251001': { input: 1.00,  output: 5.00  },
-  'claude-sonnet-4-5':         { input: 3.00,  output: 15.00 },
+  'claude-sonnet-4-6':         { input: 3.00,  output: 15.00 },
   'claude-opus-4-8':           { input: 15.00, output: 75.00 },
 };
 
@@ -71,6 +80,29 @@ db.exec(`
     expires_at INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS projects (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    uid          TEXT    NOT NULL,
+    name         TEXT    NOT NULL,
+    filename     TEXT    NOT NULL DEFAULT '',
+    total_pages  INTEGER NOT NULL DEFAULT 0,
+    created_at   INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at   INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+
+  CREATE TABLE IF NOT EXISTS project_pages (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    page_num    INTEGER NOT NULL,
+    result_json TEXT    NOT NULL,
+    model       TEXT    NOT NULL DEFAULT '',
+    created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+    UNIQUE(project_id, page_num)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_projects_uid ON projects(uid);
+  CREATE INDEX IF NOT EXISTS idx_project_pages_pid ON project_pages(project_id);
+
   CREATE TABLE IF NOT EXISTS requests (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     uid           TEXT    NOT NULL,
@@ -96,11 +128,38 @@ db.exec(`
     value TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS jobs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    uid         TEXT    NOT NULL,
+    project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    pages       TEXT    NOT NULL,
+    mode        TEXT    NOT NULL DEFAULT 'modernize',
+    lang        TEXT    NOT NULL DEFAULT 'русский',
+    model       TEXT    NOT NULL DEFAULT 'claude-haiku-4-5-20251001',
+    latin       INTEGER NOT NULL DEFAULT 0,
+    status      TEXT    NOT NULL DEFAULT 'pending',
+    pages_done  INTEGER NOT NULL DEFAULT 0,
+    pages_total INTEGER NOT NULL DEFAULT 0,
+    pdf_path    TEXT,
+    error       TEXT,
+    created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at  INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+
   CREATE INDEX IF NOT EXISTS idx_requests_uid ON requests(uid);
   CREATE INDEX IF NOT EXISTS idx_requests_ts  ON requests(created_at);
   CREATE INDEX IF NOT EXISTS idx_payments_uid ON payments(uid);
   CREATE INDEX IF NOT EXISTS idx_payments_ts  ON payments(created_at);
   CREATE INDEX IF NOT EXISTS idx_sessions_uid ON sessions(uid);
+  CREATE INDEX IF NOT EXISTS idx_jobs_uid     ON jobs(uid);
+  CREATE INDEX IF NOT EXISTS idx_jobs_status  ON jobs(status);
+
+  CREATE TABLE IF NOT EXISTS job_page_images (
+    job_id     INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    page_num   INTEGER NOT NULL,
+    image_data TEXT    NOT NULL,
+    PRIMARY KEY (job_id, page_num)
+  );
 `);
 
 // Prepared statements — credits
@@ -168,9 +227,9 @@ function getPackages() {
     if (s) return JSON.parse(s);
   } catch {}
   return {
-    pages_100:  { credits: 100,  amount_eur: 3.90,  price_id: process.env.STRIPE_PRICE_100  || '' },
-    pages_500:  { credits: 500,  amount_eur: 14.90, price_id: process.env.STRIPE_PRICE_500  || '' },
-    pages_1000: { credits: 1000, amount_eur: 24.90, price_id: process.env.STRIPE_PRICE_1000 || '' },
+    pages_100:  { credits: 100,  amount_eur: 5.00,  amount_rub: 490,  price_id: process.env.STRIPE_PRICE_100  || '' },
+    pages_500:  { credits: 500,  amount_eur: 15.00, amount_rub: 1490, price_id: process.env.STRIPE_PRICE_500  || '' },
+    pages_1000: { credits: 1000, amount_eur: 25.00, amount_rub: 2490, price_id: process.env.STRIPE_PRICE_1000 || '' },
   };
 }
 
@@ -186,7 +245,8 @@ app.use((req, res, next) => {
   next();
 });
 
-app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), handleWebhook);
+app.post('/api/stripe-webhook',   express.raw({ type: 'application/json' }), handleWebhook);
+app.post('/api/yookassa-webhook', express.json(), handleYooKassaWebhook);
 app.use(express.json({ limit: '20mb' }));
 
 // ── Admin auth middleware ─────────────────────────────────────────────────────
@@ -212,9 +272,29 @@ app.post('/api/auth/logout',          handleLogout);
 app.get('/api/auth/me',              handleMe);
 app.post('/api/auth/change-password', handleChangePassword);
 
-app.post('/api/claude',   handleClaude);
-app.get('/api/credits',   handleCredits);
-app.post('/api/checkout', handleCheckout);
+app.post('/api/claude',        handleClaude);
+app.post('/api/process-url',   handleProcessUrl);
+app.get('/api/proxy-image',    handleProxyImage);
+app.post('/api/tg-webhook',    handleTgWebhook);
+app.get('/api/credits',        handleCredits);
+app.post('/api/checkout',      handleCheckout);
+app.post('/api/checkout-ru',   handleCheckoutRu);
+
+// Projects
+app.get('/api/projects',                    requireAuth, listProjects);
+app.post('/api/projects',                   requireAuth, createProject);
+app.get('/api/projects/:id',                requireAuth, getProject);
+app.delete('/api/projects/:id',             requireAuth, deleteProject);
+app.put('/api/projects/:id',                requireAuth, updateProject);
+app.post('/api/projects/:id/pages',         requireAuth, saveProjectPage);
+app.get('/api/projects/:id/pages',          requireAuth, getProjectPages);
+app.delete('/api/projects/:id/pages/:num',  requireAuth, deleteProjectPage);
+
+// Jobs (server-side processing queue)
+const upload = multer({ dest: os.tmpdir(), limits: { fileSize: 100 * 1024 * 1024 } });
+app.post('/api/jobs',           requireAuth, upload.single('pdf'), createJob);
+app.get('/api/jobs/:id',        requireAuth, getJob);
+app.delete('/api/jobs/:id',     requireAuth, cancelJob);
 
 // ── Admin routes ──────────────────────────────────────────────────────────────
 
@@ -229,10 +309,20 @@ app.post('/admin/api/settings',adminAuth, adminSaveSettings);
 
 // Account page
 app.get('/account', (req, res) => res.sendFile(path.join(__dirname, 'account.html')));
+app.get('/about',   (req, res) => res.sendFile(path.join(__dirname, 'about.html')));
 
 // Frontend
 app.use(express.static(__dirname));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+
+// ── Auth middleware ───────────────────────────────────────────────────────────
+
+function requireAuth(req, res, next) {
+  const uid = getUidFromRequest(req);
+  if (!uid) return res.status(401).json({ error: 'Not authenticated' });
+  req.uid = uid;
+  next();
+}
 
 // ── Auth handlers ─────────────────────────────────────────────────────────────
 
@@ -245,13 +335,29 @@ async function handleRegister(req, res) {
   if (existing) return res.status(409).json({ error: 'Email already registered' });
 
   // Use existing anonymous uid (preserves credits) or create new one
-  const uid = anonUid || crypto.randomUUID();
+  // But only if uid is not already registered to another user
+  const uidTaken = anonUid ? stmtGetUserUid.get(anonUid) : null;
+  const uid = (!uidTaken && anonUid) ? anonUid : crypto.randomUUID();
   const hash = await bcrypt.hash(password, 10);
 
   try {
     stmtCreateUser.run(email, hash, uid);
     // Ensure credits row exists
     if (!stmtGetCredits.get(uid)) stmtUpsertCredits.run(uid, 0, 0);
+
+    // Promo: first 100 users get 10 free pages
+    const PROMO_LIMIT = 100;
+    const PROMO_CREDITS = 10;
+    const promoSetting = getSetting('promo_enabled', '1');
+    if (promoSetting === '1') {
+      const promoCount = db.prepare(`SELECT COUNT(*) as n FROM users`).get().n;
+      if (promoCount <= PROMO_LIMIT) {
+        const cur = stmtGetCredits.get(uid);
+        saveBalance(uid, (cur?.balance || 0) + PROMO_CREDITS);
+        console.log(`[promo] ${email} got ${PROMO_CREDITS} free pages (user #${promoCount}/${PROMO_LIMIT})`);
+      }
+    }
+
     const token = createSessionToken(uid);
     res.json({ token, uid, email });
   } catch (err) {
@@ -322,6 +428,399 @@ async function handleChangePassword(req, res) {
   res.json({ ok: true });
 }
 
+// ── Project handlers ──────────────────────────────────────────────────────────
+
+function listProjects(req, res) {
+  const rows = db.prepare(`
+    SELECT p.*,
+      (SELECT COUNT(*) FROM project_pages WHERE project_id = p.id) as pages_done,
+      (SELECT (j.updated_at - j.created_at) FROM jobs j
+       WHERE j.project_id = p.id AND j.status = 'done'
+       ORDER BY j.updated_at DESC LIMIT 1) as last_job_sec
+    FROM projects p WHERE p.uid = ? ORDER BY p.updated_at DESC
+  `).all(req.uid);
+  res.json(rows);
+}
+
+function createProject(req, res) {
+  const { name, filename, total_pages } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const r = db.prepare(`
+    INSERT INTO projects (uid, name, filename, total_pages) VALUES (?, ?, ?, ?)
+  `).run(req.uid, name, filename || '', total_pages || 0);
+  const project = db.prepare(`SELECT * FROM projects WHERE id = ?`).get(r.lastInsertRowid);
+  res.json(project);
+}
+
+function getProject(req, res) {
+  const project = db.prepare(`SELECT * FROM projects WHERE id = ? AND uid = ?`).get(req.params.id, req.uid);
+  if (!project) return res.status(404).json({ error: 'Not found' });
+  const pages_done = db.prepare(`SELECT COUNT(*) as n FROM project_pages WHERE project_id = ?`).get(project.id).n;
+  res.json({ ...project, pages_done });
+}
+
+function updateProject(req, res) {
+  const { name, total_pages } = req.body;
+  const project = db.prepare(`SELECT * FROM projects WHERE id = ? AND uid = ?`).get(req.params.id, req.uid);
+  if (!project) return res.status(404).json({ error: 'Not found' });
+  db.prepare(`UPDATE projects SET name = ?, total_pages = ?, updated_at = unixepoch() WHERE id = ?`)
+    .run(name ?? project.name, total_pages ?? project.total_pages, project.id);
+  res.json({ ok: true });
+}
+
+function deleteProject(req, res) {
+  const r = db.prepare(`DELETE FROM projects WHERE id = ? AND uid = ?`).run(req.params.id, req.uid);
+  if (!r.changes) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true });
+}
+
+function saveProjectPage(req, res) {
+  const project = db.prepare(`SELECT * FROM projects WHERE id = ? AND uid = ?`).get(req.params.id, req.uid);
+  if (!project) return res.status(404).json({ error: 'Not found' });
+  const { page_num, result_json, model } = req.body;
+  if (!page_num || !result_json) return res.status(400).json({ error: 'page_num and result_json required' });
+  db.prepare(`
+    INSERT INTO project_pages (project_id, page_num, result_json, model) VALUES (?, ?, ?, ?)
+    ON CONFLICT(project_id, page_num) DO UPDATE SET result_json = excluded.result_json, model = excluded.model
+  `).run(project.id, page_num, typeof result_json === 'string' ? result_json : JSON.stringify(result_json), model || '');
+  db.prepare(`UPDATE projects SET updated_at = unixepoch() WHERE id = ?`).run(project.id);
+  res.json({ ok: true });
+}
+
+function getProjectPages(req, res) {
+  const project = db.prepare(`SELECT * FROM projects WHERE id = ? AND uid = ?`).get(req.params.id, req.uid);
+  if (!project) return res.status(404).json({ error: 'Not found' });
+  const pages = db.prepare(`
+    SELECT page_num, result_json, model, created_at FROM project_pages
+    WHERE project_id = ? ORDER BY page_num
+  `).all(project.id);
+  res.json(pages.map(p => {
+    let result_json;
+    try { result_json = JSON.parse(p.result_json); } catch { result_json = {}; }
+    return { ...p, result_json };
+  }));
+}
+
+function deleteProjectPage(req, res) {
+  const project = db.prepare(`SELECT * FROM projects WHERE id = ? AND uid = ?`).get(req.params.id, req.uid);
+  if (!project) return res.status(404).json({ error: 'Not found' });
+  db.prepare(`DELETE FROM project_pages WHERE project_id = ? AND page_num = ?`).run(project.id, req.params.num);
+  res.json({ ok: true });
+}
+
+// ── Job handlers ──────────────────────────────────────────────────────────────
+
+function createJob(req, res) {
+  let pages;
+  try {
+    pages = typeof req.body.pages === 'string' ? JSON.parse(req.body.pages) : req.body.pages;
+  } catch { pages = null; }
+  const { project_id, mode, lang, model } = req.body;
+  const latin = req.body.latin === '1' || req.body.latin === 1 || req.body.latin === true;
+
+  if (!project_id || !pages || !Array.isArray(pages) || pages.length === 0) {
+    if (req.file) fs.unlinkSync(req.file.path);
+    return res.status(400).json({ error: 'project_id and pages[] required' });
+  }
+  if (!req.file) {
+    return res.status(400).json({ error: 'PDF file required' });
+  }
+
+  const project = db.prepare(`SELECT * FROM projects WHERE id = ? AND uid = ?`).get(project_id, req.uid);
+  if (!project) {
+    fs.unlinkSync(req.file.path);
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const credits = fetchBalance(req.uid);
+  if (credits < pages.length) {
+    fs.unlinkSync(req.file.path);
+    return res.status(402).json({ error: 'no_credits' });
+  }
+
+  const result = db.prepare(`
+    INSERT INTO jobs (uid, project_id, pages, mode, lang, model, latin, pages_total, pdf_path)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(req.uid, project_id, JSON.stringify(pages), mode || 'modernize', lang || 'русский',
+         model || 'claude-haiku-4-5-20251001', latin ? 1 : 0, pages.length, req.file.path);
+
+  res.json({ job_id: result.lastInsertRowid });
+}
+
+function getJob(req, res) {
+  const job = db.prepare(`SELECT * FROM jobs WHERE id = ? AND uid = ?`).get(req.params.id, req.uid);
+  if (!job) return res.status(404).json({ error: 'Not found' });
+
+  const completedPages = db.prepare(`
+    SELECT page_num, result_json FROM project_pages
+    WHERE project_id = ? AND page_num IN (${(() => { try { return JSON.parse(job.pages).join(','); } catch { return '0'; } })()})
+  `).all(job.project_id);
+
+  res.json({
+    id: job.id,
+    status: job.status,
+    pages_done: job.pages_done,
+    pages_total: job.pages_total,
+    error: job.error,
+    completed_pages: completedPages,
+  });
+}
+
+function cancelJob(req, res) {
+  const job = db.prepare(`SELECT * FROM jobs WHERE id = ? AND uid = ?`).get(req.params.id, req.uid);
+  if (!job) return res.status(404).json({ error: 'Not found' });
+  if (job.status === 'pending' || job.status === 'running') {
+    db.prepare(`UPDATE jobs SET status = 'cancelled', updated_at = unixepoch() WHERE id = ?`).run(job.id);
+  }
+  res.json({ ok: true });
+}
+
+// ── Job image upload ──────────────────────────────────────────────────────────
+
+app.post('/api/jobs/:id/images', requireAuth, (req, res) => {
+  const job = db.prepare(`SELECT * FROM jobs WHERE id = ? AND uid = ?`).get(req.params.id, req.uid);
+  if (!job) return res.status(404).json({ error: 'Not found' });
+  const { page_num, image_data } = req.body;
+  if (!page_num || !image_data) return res.status(400).json({ error: 'page_num and image_data required' });
+  db.prepare(`INSERT OR REPLACE INTO job_page_images (job_id, page_num, image_data) VALUES (?, ?, ?)`)
+    .run(job.id, page_num, image_data);
+  res.json({ ok: true });
+});
+
+// ── Prompts ───────────────────────────────────────────────────────────────────
+
+const LATIN_FIELD = `  "latin_fragments": [\n    { "original": "...", "translation": "...", "source": "..." }\n  ]`;
+const NO_LATIN_FIELD = `  "latin_fragments": []`;
+
+function getOcrPrompt(latin) {
+  return `Du bist Experte für deutsche Rechtsliteratur des 19. Jahrhunderts in Frakturschrift.
+Lies den Text aus dem Bild und gib ihn in modernem Deutsch wieder.
+
+Regeln:
+1. Lies den Frakturtext genau, beachte archaische Orthographie.
+2. Gib den Text in moderner deutscher Rechtschreibung wieder: ſ→s, Majuskelregeln modernisieren.
+3. Lateinische Passagen bleiben im Original.
+4. Jeder Absatz = ein separates Element im Array.
+5. Fußnoten vollständig aufnehmen als eigene Elemente in paragraphs.
+6. Antworte NUR mit gültigem JSON — kein Markdown, keine Präambel.
+7. Alle Anführungszeichen in Strings escapen: \"
+
+{
+  "title": "Seitentitel oder leerer String",
+  "paragraphs": ["erster Absatz", "zweiter Absatz"],
+${latin ? LATIN_FIELD : NO_LATIN_FIELD}
+}`;
+}
+
+function getTranslatePrompt(lang, latin) {
+  return `Ты — профессиональный переводчик немецких юридических текстов XIX века.
+Переведи следующий текст на ${lang}. Текст уже транскрибирован с готического шрифта в современный немецкий.
+
+Правила:
+1. Переводи точно и профессионально, сохраняй юридическую терминологию.
+2. Каждый элемент массива paragraphs переводи отдельно, сохраняй структуру JSON.
+3. ${latin ? 'Латинские фрагменты оставь в original, добавь перевод и источник.' : 'latin_fragments всегда возвращай пустым массивом.'}
+4. Отвечай ТОЛЬКО валидным JSON — без markdown, без преамбулы.
+5. Все кавычки внутри строк JSON экранируй: \"
+
+Входной JSON:
+`;
+}
+
+function getPrompts(mode, lang, latin) {
+  if (mode === 'modernize') {
+    return `Du bist Experte für deutsche Rechtsliteratur des 19. Jahrhunderts in Frakturschrift.
+Deine Aufgabe: Lies den Text aus dem Bild (Frakturschrift) und gib ihn in modernem Deutsch wieder.
+
+Regeln:
+1. Lies den Frakturtext genau, beachte archaische Orthographie.
+2. Gib den Text in moderner deutscher Rechtschreibung wieder: ſ→s, Majuskelregeln modernisieren, veraltete Schreibweisen aktualisieren.
+3. Lateinische Passagen bleiben im Original.
+4. Jeder Absatz des Originals = ein separates Element im Array.
+5. FUßNOTEN PFLICHT. Fußnoten am Seitenende (markiert mit Ziffern 1), 2), Sternchen * usw.) vollständig modernisieren und als eigene Elemente in paragraphs aufnehmen. Keine Fußnote auslassen.
+5. ${latin ? 'Lateinische Fragmente separat mit Übersetzung und Quelle auflisten.' : 'latin_fragments immer als leeres Array zurückgeben.'}
+6. Antworte NUR mit gültigem JSON — kein Markdown, keine Präambel.
+7. WICHTIG: Alle Anführungszeichen innerhalb von Strings müssen escaped werden: \" — niemals rohe " innerhalb eines JSON-String-Werts.
+
+{
+  "title": "Seitentitel auf modernem Deutsch, oder leerer String",
+  "paragraphs": ["erster Absatz", "zweiter Absatz"],
+${latin ? LATIN_FIELD : NO_LATIN_FIELD}
+}`;
+  } else {
+    return `Ты — специалист по немецкой юридической литературе XIX века.
+Читаешь тексты, набранные готическим шрифтом (Fraktur), переводишь на ${lang}.
+
+Правила:
+1. Основной текст — немецкий в Fraktur. Читай точно, учитывая архаичную орфографию.
+2. ${latin ? 'Латинские слова обычно набраны антиквой — выделяй их отдельно.' : 'latin_fragments всегда возвращай пустым массивом.'}
+3. ${latin ? 'Для латинских фрагментов: дай перевод + источник.' : ''}
+4. Каждый абзац оригинала — отдельный элемент массива.
+5. СНОСКИ ОБЯЗАТЕЛЬНЫ. Сноски в нижней части страницы (обозначены цифрами 1), 2), звёздочками * и т.п.) — переводи их полностью и включай в массив paragraphs как отдельные элементы. Не пропускай ни одну сноску.
+6. Отвечай ТОЛЬКО валидным JSON — без markdown, без преамбулы.
+7. ВАЖНО: все кавычки внутри строк JSON должны быть экранированы: \" — никогда не используй голые " внутри значения строки.
+
+{
+  "title": "заголовок на ${lang}, или пустая строка",
+  "paragraphs": ["перевод первого абзаца", "перевод второго абзаца"],
+${latin ? LATIN_FIELD : NO_LATIN_FIELD}
+}`;
+  }
+}
+
+// ── Job worker ────────────────────────────────────────────────────────────────
+
+async function renderPdfPage(pdfPath, pageNum) {
+  const outPrefix = pdfPath + `_p${pageNum}`;
+  await execFileAsync('pdftoppm', [
+    '-jpeg', '-r', '150',
+    '-f', String(pageNum), '-l', String(pageNum),
+    pdfPath, outPrefix
+  ]);
+  // pdftoppm zero-padding varies by version; find the actual output file
+  const dir = path.dirname(outPrefix);
+  const base = path.basename(outPrefix);
+  const files = fs.readdirSync(dir).filter(f => f.startsWith(base) && f.endsWith('.jpg'));
+  if (!files.length) throw new Error(`pdftoppm produced no output for page ${pageNum}`);
+  const outFile = path.join(dir, files[0]);
+  const b64 = fs.readFileSync(outFile).toString('base64');
+  fs.unlinkSync(outFile);
+  return b64;
+}
+
+async function callClaudeWithRetry(model, systemPrompt, messages) {
+  let upstream, data;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    if (attempt > 0) {
+      const delay = Math.min(30000 * Math.pow(1.5, attempt - 1), 300000);
+      await new Promise(r => setTimeout(r, delay));
+    }
+    upstream = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({ model, max_tokens: 4096, system: systemPrompt, messages }),
+    });
+    data = await upstream.json();
+    if (upstream.status === 529 || upstream.status >= 500) continue;
+    break;
+  }
+  if (!upstream.ok) throw new Error(data.error?.message || `Claude API error ${upstream.status}`);
+  return { data, inputTokens: data.usage?.input_tokens || 0, outputTokens: data.usage?.output_tokens || 0 };
+}
+
+async function processJob(job) {
+  const pages = JSON.parse(job.pages);
+  let pagesDone = 0;
+  const latin = job.latin === 1;
+
+  for (const pageNum of pages) {
+    const current = db.prepare(`SELECT status FROM jobs WHERE id = ?`).get(job.id);
+    if (current.status === 'cancelled') {
+      if (job.pdf_path) try { fs.unlinkSync(job.pdf_path); } catch {}
+      return;
+    }
+
+    const credits = fetchBalance(job.uid);
+    if (credits <= 0) {
+      db.prepare(`UPDATE jobs SET status = 'failed', error = 'no_credits', updated_at = unixepoch() WHERE id = ?`).run(job.id);
+      if (job.pdf_path) try { fs.unlinkSync(job.pdf_path); } catch {}
+      return;
+    }
+
+    // Skip already processed pages
+    const existing = db.prepare(`SELECT id FROM project_pages WHERE project_id = ? AND page_num = ?`).get(job.project_id, pageNum);
+    if (existing) {
+      pagesDone++;
+      db.prepare(`UPDATE jobs SET pages_done = ?, updated_at = unixepoch() WHERE id = ?`).run(pagesDone, job.id);
+      continue;
+    }
+
+    try {
+      const b64 = await renderPdfPage(job.pdf_path, pageNum);
+      const imageMsg = [
+        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
+        { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' },
+      ];
+
+      let result;
+
+      if (job.mode === 'translate') {
+        // Stage 1: Haiku OCR → modern German JSON
+        const OCR_MODEL = 'claude-haiku-4-5-20251001';
+        const { data: d1, inputTokens: i1, outputTokens: o1 } = await callClaudeWithRetry(
+          OCR_MODEL, getOcrPrompt(latin), [{ role: 'user', content: imageMsg }]
+        );
+        stmtLogRequest.run(job.uid, OCR_MODEL, i1, o1, calcCost(OCR_MODEL, i1, o1));
+        const germanJson = parseJsonResult((d1.content || []).map(b => b.text || '').join(''));
+
+        // Stage 2: Sonnet translates text only
+        const TRANSLATE_MODEL = 'claude-sonnet-4-6';
+        const { data: d2, inputTokens: i2, outputTokens: o2 } = await callClaudeWithRetry(
+          TRANSLATE_MODEL, getTranslatePrompt(job.lang, latin),
+          [{ role: 'user', content: [{ type: 'text', text: JSON.stringify(germanJson) }] }]
+        );
+        stmtLogRequest.run(job.uid, TRANSLATE_MODEL, i2, o2, calcCost(TRANSLATE_MODEL, i2, o2));
+        result = parseJsonResult((d2.content || []).map(b => b.text || '').join(''));
+
+      } else {
+        // Single stage: modernize
+        const prompt = getPrompts(job.mode, job.lang, latin);
+        const { data, inputTokens, outputTokens } = await callClaudeWithRetry(
+          job.model, prompt, [{ role: 'user', content: imageMsg }]
+        );
+        stmtLogRequest.run(job.uid, job.model, inputTokens, outputTokens, calcCost(job.model, inputTokens, outputTokens));
+        result = parseJsonResult((data.content || []).map(b => b.text || '').join(''));
+      }
+
+      // Deduct credit only after successful result
+      saveBalance(job.uid, credits - 1);
+      db.prepare(`INSERT OR REPLACE INTO project_pages (project_id, page_num, result_json, model) VALUES (?, ?, ?, ?)`)
+        .run(job.project_id, pageNum, JSON.stringify(result), job.model);
+      db.prepare(`UPDATE projects SET updated_at = unixepoch() WHERE id = ?`).run(job.project_id);
+
+      pagesDone++;
+      db.prepare(`UPDATE jobs SET pages_done = ?, updated_at = unixepoch() WHERE id = ?`).run(pagesDone, job.id);
+
+    } catch (err) {
+      console.error(`Job ${job.id} page ${pageNum} error:`, err);
+      db.prepare(`UPDATE jobs SET status = 'failed', error = ?, updated_at = unixepoch() WHERE id = ?`).run(err.message, job.id);
+      if (job.pdf_path) try { fs.unlinkSync(job.pdf_path); } catch {}
+      return;
+    }
+  }
+
+  db.prepare(`UPDATE jobs SET status = 'done', updated_at = unixepoch() WHERE id = ?`).run(job.id);
+  if (job.pdf_path) try { fs.unlinkSync(job.pdf_path); } catch {}
+}
+
+// Poll for pending jobs every 3 seconds — run up to 3 jobs in parallel
+const MAX_CONCURRENT_JOBS = 3;
+let runningJobs = 0;
+
+setInterval(async () => {
+  if (runningJobs >= MAX_CONCURRENT_JOBS) return;
+
+  const slots = MAX_CONCURRENT_JOBS - runningJobs;
+  const pending = db.prepare(
+    `SELECT * FROM jobs WHERE status = 'pending' ORDER BY created_at ASC LIMIT ?`
+  ).all(slots);
+
+  for (const job of pending) {
+    // Atomically claim the job
+    const claimed = db.prepare(
+      `UPDATE jobs SET status = 'running', updated_at = unixepoch() WHERE id = ? AND status = 'pending'`
+    ).run(job.id);
+    if (claimed.changes === 0) continue; // another worker claimed it
+
+    runningJobs++;
+    processJob(job).finally(() => { runningJobs--; });
+  }
+}, 3000);
+
 // ── Public handlers ───────────────────────────────────────────────────────────
 
 async function handleClaude(req, res) {
@@ -350,6 +849,7 @@ async function handleClaude(req, res) {
 
     const data = await upstream.json();
     if (!upstream.ok) {
+      console.error('[claude] error', upstream.status, JSON.stringify(data).slice(0, 300));
       saveBalance(uid, credits); // refund
       return res.status(upstream.status).json(data);
     }
@@ -372,6 +872,162 @@ async function handleCredits(req, res) {
   const { uid } = req.query;
   if (!uid) return res.status(400).json({ error: 'Missing uid' });
   res.json({ credits: fetchBalance(uid) });
+}
+
+async function handleProxyImage(req, res) {
+  const { url } = req.query;
+  if (!url || !url.startsWith('https://dlc.mpg.de/')) return res.status(400).send('Bad url');
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return res.status(r.status).send('Upstream error');
+    const ct = r.headers.get('content-type') || 'image/jpeg';
+    const buf = Buffer.from(await r.arrayBuffer());
+    res.set('Content-Type', ct);
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(buf);
+  } catch (e) {
+    res.status(502).send(e.message);
+  }
+}
+
+const TG_TOKEN = process.env.TG_TOKEN || '8839507772:AAGR_THA7lxBTliab9Zktrv7QE2vY1kaO8M';
+const TG_OWNER = process.env.TG_OWNER || '221519259';
+const TG_API   = `https://api.telegram.org/bot${TG_TOKEN}`;
+
+async function tgSend(chatId, text) {
+  await fetch(`${TG_API}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+  }).catch(() => {});
+}
+
+async function handleTgWebhook(req, res) {
+  res.sendStatus(200);
+  const msg = req.body?.message;
+  if (!msg || !msg.text) return;
+
+  const chatId   = msg.chat.id;
+  const username = msg.from?.username ? `@${msg.from.username}` : (msg.from?.first_name || 'unknown');
+  const text     = msg.text.trim();
+
+  await tgSend(chatId,
+    `👋 Thanks for reaching out!\n\nWe've received your message and will get back to you shortly.\n\n` +
+    `📖 In the meantime, try <a href="https://fraktur.app">fraktur.app</a>`
+  );
+
+  await tgSend(TG_OWNER,
+    `📨 <b>New message from ${username}</b> (chat_id: ${chatId}):\n\n${text}`
+  );
+}
+
+async function callClaudeApi(model, systemPrompt, messages) {
+  const upstream = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': process.env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({ model, max_tokens: 4096, system: systemPrompt, messages }),
+  });
+  const data = await upstream.json();
+  if (!upstream.ok) throw Object.assign(new Error(data.error?.message || `Claude ${upstream.status}`), { status: upstream.status, data });
+  return { data, inputTokens: data.usage?.input_tokens || 0, outputTokens: data.usage?.output_tokens || 0 };
+}
+
+function parseJsonResult(raw) {
+  const start = raw.indexOf('{');
+  const end   = raw.lastIndexOf('}');
+  if (start === -1 || end === -1) throw new Error('No JSON in response');
+  const chunk = raw.slice(start, end + 1);
+  try { return JSON.parse(chunk); } catch {}
+  try { return JSON.parse(jsonrepair(chunk)); } catch {}
+  const paragraphs = chunk.split(/\\n|\n/)
+    .map(l => l.replace(/^[\s"{}[\],]+|[\s"{}[\],]+$/g, '').trim())
+    .filter(l => l.length > 10);
+  return { title: '', paragraphs };
+}
+
+async function handleProcessUrl(req, res) {
+  if (getSetting('maintenance') === '1') return res.status(503).json({ error: 'maintenance' });
+
+  const uid = getUidFromRequest(req);
+  if (!uid) return res.status(401).json({ error: 'Missing X-User-Id' });
+
+  const credits = fetchBalance(uid);
+  if (credits <= 0) return res.status(402).json({ error: 'no_credits' });
+
+  const { image_url, mode, lang, latin, model } = req.body;
+  // Support legacy calls that send system directly
+  const legacySystem = req.body.system;
+  if (!image_url) return res.status(400).json({ error: 'image_url required' });
+  if (!mode && !legacySystem) return res.status(400).json({ error: 'mode or system required' });
+
+  // Fetch image server-side
+  let imageB64, mediaType;
+  try {
+    const r = await fetch(image_url);
+    if (!r.ok) return res.status(502).json({ error: `Image fetch failed: ${r.status}` });
+    const buf = Buffer.from(await r.arrayBuffer());
+    mediaType = r.headers.get('content-type')?.split(';')[0] || 'image/jpeg';
+    if (!['image/jpeg','image/png','image/gif','image/webp'].includes(mediaType)) mediaType = 'image/jpeg';
+    imageB64 = buf.toString('base64');
+  } catch (e) {
+    return res.status(502).json({ error: `Image fetch error: ${e.message}` });
+  }
+
+  saveBalance(uid, credits - 1);
+
+  try {
+    let result;
+
+    if (mode === 'translate') {
+      // Stage 1: Haiku reads Fraktur → modern German JSON
+      const OCR_MODEL = 'claude-haiku-4-5-20251001';
+      const { data: d1, inputTokens: i1, outputTokens: o1 } = await callClaudeApi(
+        OCR_MODEL,
+        getOcrPrompt(!!latin),
+        [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageB64 } },
+          { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' },
+        ]}]
+      );
+      stmtLogRequest.run(uid, OCR_MODEL, i1, o1, calcCost(OCR_MODEL, i1, o1));
+      const germanJson = parseJsonResult((d1.content || []).map(b => b.text || '').join(''));
+
+      // Stage 2: Sonnet translates text only (no image)
+      const TRANSLATE_MODEL = 'claude-sonnet-4-6';
+      const { data: d2, inputTokens: i2, outputTokens: o2 } = await callClaudeApi(
+        TRANSLATE_MODEL,
+        getTranslatePrompt(lang || 'русский', !!latin),
+        [{ role: 'user', content: [{ type: 'text', text: JSON.stringify(germanJson) }] }]
+      );
+      stmtLogRequest.run(uid, TRANSLATE_MODEL, i2, o2, calcCost(TRANSLATE_MODEL, i2, o2));
+      result = parseJsonResult((d2.content || []).map(b => b.text || '').join(''));
+
+    } else {
+      // Single-stage: modernize or legacy
+      const systemPrompt = legacySystem || getPrompts(mode || 'modernize', lang || 'русский', !!latin);
+      const useModel = model || 'claude-haiku-4-5-20251001';
+      const { data, inputTokens, outputTokens } = await callClaudeApi(
+        useModel,
+        systemPrompt,
+        [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageB64 } },
+          { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' },
+        ]}]
+      );
+      stmtLogRequest.run(uid, useModel, inputTokens, outputTokens, calcCost(useModel, inputTokens, outputTokens));
+      result = parseJsonResult((data.content || []).map(b => b.text || '').join(''));
+    }
+
+    res.json({ result, credits_remaining: fetchBalance(uid) });
+  } catch (e) {
+    console.error('[process-url] error', e.message);
+    saveBalance(uid, credits);
+    res.status(e.status || 500).json({ error: e.message });
+  }
 }
 
 async function handleCheckout(req, res) {
@@ -433,6 +1089,79 @@ async function handleWebhook(req, res) {
   res.send('OK');
 }
 
+// ── YooKassa ──────────────────────────────────────────────────────────────────
+
+async function handleCheckoutRu(req, res) {
+  const { uid, package_id, success_url, cancel_url } = req.body;
+  const packages = getPackages();
+  const pkg = packages[package_id];
+  if (!pkg) return res.status(400).json({ error: 'Unknown package' });
+  if (!uid)  return res.status(400).json({ error: 'Missing uid' });
+
+  const proxyUrl = process.env.YOOKASSA_PROXY_URL;
+  if (!proxyUrl) return res.status(503).json({ error: 'YooKassa not configured' });
+
+  // Get user email for receipt
+  const user = fetchUser(uid);
+  const email = user?.email || 'noreply@fraktur.app';
+
+  const idempotenceKey = crypto.randomUUID();
+  const amountRub = pkg.amount_rub || Math.round(pkg.amount_eur * 95);
+
+  try {
+    const r = await fetch(proxyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        _idempotence_key: idempotenceKey,
+        amount:      { value: amountRub.toFixed(2), currency: 'RUB' },
+        capture:     true,
+        confirmation: {
+          type:       'redirect',
+          return_url: success_url || 'https://fraktur.app/account?payment=ok',
+        },
+        description: `Fraktur.app — ${pkg.credits} pages`,
+        metadata:    { uid, package_id },
+        receipt: {
+          customer: { email },
+          items: [{
+            description: `Fraktur.app — ${pkg.credits} страниц`,
+            quantity:    '1.00',
+            amount:      { value: amountRub.toFixed(2), currency: 'RUB' },
+            vat_code:    1,
+            payment_subject: 'service',
+            payment_mode:    'full_payment',
+          }],
+        },
+      }),
+    });
+
+    const payment = await r.json();
+    if (!r.ok) return res.status(r.status).json(payment);
+    res.json({ url: payment.confirmation.confirmation_url });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+}
+
+async function handleYooKassaWebhook(req, res) {
+  const event = req.body;
+  if (!event || event.event !== 'payment.succeeded') return res.send('OK');
+
+  const { uid, package_id } = event.object?.metadata || {};
+  const packages = getPackages();
+  const pkg = packages[package_id];
+  if (uid && pkg) {
+    const cur = fetchUser(uid);
+    saveBalance(uid, cur.balance + pkg.credits, (cur.total_bought || 0) + pkg.credits);
+    const amount = parseFloat(event.object?.amount?.value || 0);
+    stmtLogPayment.run(uid, package_id, pkg.credits, amount / 95, event.object.id); // store as EUR equiv
+    console.log(`[yookassa] ${uid} +${pkg.credits} credits`);
+  }
+
+  res.send('OK');
+}
+
 // ── Admin handlers ────────────────────────────────────────────────────────────
 
 function adminStats(req, res) {
@@ -481,6 +1210,7 @@ function adminUsers(req, res) {
   const rows = db.prepare(`
     SELECT
       c.uid,
+      u.email,
       c.balance,
       c.total_bought,
       c.created_at,
@@ -489,6 +1219,7 @@ function adminUsers(req, res) {
       COALESCE(p.paid_eur, 0) as paid_eur,
       r.last_used
     FROM credits c
+    LEFT JOIN users u ON u.uid = c.uid
     LEFT JOIN (
       SELECT uid, COUNT(*) as pages, SUM(cost_usd) as cost_usd, MAX(created_at) as last_used
       FROM requests GROUP BY uid
@@ -496,12 +1227,16 @@ function adminUsers(req, res) {
     LEFT JOIN (
       SELECT uid, SUM(amount_eur) as paid_eur FROM payments GROUP BY uid
     ) p ON p.uid = c.uid
-    WHERE c.uid LIKE ?
+    WHERE c.uid LIKE ? OR u.email LIKE ?
     ORDER BY c.created_at DESC
     LIMIT ? OFFSET ?
-  `).all(`%${search}%`, limit, offset);
+  `).all(`%${search}%`, `%${search}%`, limit, offset);
 
-  const total = db.prepare(`SELECT COUNT(*) as n FROM credits WHERE uid LIKE ?`).get(`%${search}%`).n;
+  const total = db.prepare(`
+    SELECT COUNT(*) as n FROM credits c
+    LEFT JOIN users u ON u.uid = c.uid
+    WHERE c.uid LIKE ? OR u.email LIKE ?
+  `).get(`%${search}%`, `%${search}%`).n;
   res.json({ rows, total });
 }
 
@@ -540,16 +1275,21 @@ function adminSetCredits(req, res) {
 function adminGetSettings(req, res) {
   const packages    = getSetting('packages');
   const maintenance = getSetting('maintenance', '0');
+  const promoEnabled = getSetting('promo_enabled', '1');
+  const promoCount  = db.prepare(`SELECT COUNT(*) as n FROM users`).get().n;
   res.json({
     packages: packages ? JSON.parse(packages) : getPackages(),
     maintenance: maintenance === '1',
+    promo_enabled: promoEnabled === '1',
+    promo_count: promoCount,
   });
 }
 
 function adminSaveSettings(req, res) {
-  const { packages, maintenance } = req.body;
+  const { packages, maintenance, promo_enabled } = req.body;
   if (packages)    stmtSetSetting.run('packages', JSON.stringify(packages));
   if (maintenance !== undefined) stmtSetSetting.run('maintenance', maintenance ? '1' : '0');
+  if (promo_enabled !== undefined) stmtSetSetting.run('promo_enabled', promo_enabled ? '1' : '0');
   res.json({ ok: true });
 }
 
@@ -565,6 +1305,7 @@ const ADMIN_HTML = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fraktur Admin</title>
+<link rel="icon" type="image/png" href="/logo.png">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -657,7 +1398,7 @@ input[type=text], input[type=number] { padding: 0.3rem 0.6rem; border: 1px solid
       <span id="user-count" style="font-size:0.8rem;color:var(--text-2)"></span>
     </div>
     <table>
-      <thead><tr><th>UID</th><th>Balance</th><th>Bought</th><th>Pages used</th><th>API cost</th><th>Paid</th><th>Joined</th><th></th></tr></thead>
+      <thead><tr><th>Email</th><th>Balance</th><th>Bought</th><th>Pages used</th><th>API cost</th><th>Paid</th><th>Joined</th><th></th></tr></thead>
       <tbody id="users-tbody"></tbody>
     </table>
     <div class="pager">
@@ -700,7 +1441,16 @@ input[type=text], input[type=number] { padding: 0.3rem 0.6rem; border: 1px solid
 <!-- Settings -->
 <div id="s-settings" class="section">
   <div class="card" style="max-width:600px">
-    <h2>Maintenance mode</h2>
+    <h2>Promo campaign</h2>
+    <div class="row" style="margin-top:0.5rem">
+      <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+        <input type="checkbox" id="promo-toggle" onchange="togglePromo()">
+        Give 10 free pages to first 100 new users
+      </label>
+      <span id="promo-count" style="margin-left:1rem;color:var(--muted);font-size:0.82rem"></span>
+    </div>
+
+    <h2 style="margin-top:1.5rem">Maintenance mode</h2>
     <div class="row" style="margin-top:0.5rem">
       <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
         <input type="checkbox" id="maintenance-toggle" onchange="toggleMaintenance()">
@@ -858,7 +1608,7 @@ async function loadUsers() {
   document.getElementById('users-pager-info').textContent = \`\${usersOffset+1}–\${Math.min(usersOffset+PAGE, d.total)} of \${d.total}\`;
   document.getElementById('users-tbody').innerHTML = d.rows.map(u => \`
     <tr>
-      <td style="font-family:monospace;font-size:0.75rem">\${u.uid}</td>
+      <td>\${u.email || '<span style="color:#999;font-size:0.75rem">'+u.uid.slice(0,8)+'…</span>'}</td>
       <td><span class="badge \${u.balance>0?'green':'blue'}">\${u.balance}</span></td>
       <td>\${u.total_bought}</td>
       <td>\${u.pages_used}</td>
@@ -904,6 +1654,8 @@ function paymentsPage(dir) {
 async function loadSettings() {
   const d = await api('/admin/api/settings');
   document.getElementById('maintenance-toggle').checked = d.maintenance;
+  document.getElementById('promo-toggle').checked = d.promo_enabled;
+  document.getElementById('promo-count').textContent = \`\${d.promo_count} / 100 users registered\`;
   const pkgs = d.packages;
   document.getElementById('pkg-editor').innerHTML = Object.entries(pkgs).map(([id, pkg]) => \`
     <div style="margin-bottom:0.75rem">
@@ -923,6 +1675,11 @@ async function loadSettings() {
 async function toggleMaintenance() {
   const on = document.getElementById('maintenance-toggle').checked;
   await post('/admin/api/settings', { maintenance: on });
+}
+
+async function togglePromo() {
+  const on = document.getElementById('promo-toggle').checked;
+  await post('/admin/api/settings', { promo_enabled: on });
 }
 
 async function savePackages() {
