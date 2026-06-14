@@ -714,6 +714,7 @@ async function callClaudeWithRetry(model, systemPrompt, messages) {
     break;
   }
   if (!upstream.ok) throw new Error(data.error?.message || `Claude API error ${upstream.status}`);
+  if (data.stop_reason === 'content_filter') throw new Error('Output blocked by content filtering policy');
   return { data, inputTokens: data.usage?.input_tokens || 0, outputTokens: data.usage?.output_tokens || 0 };
 }
 
@@ -792,6 +793,18 @@ async function processJob(job) {
 
     } catch (err) {
       console.error(`Job ${job.id} page ${pageNum} error:`, err);
+
+      // Content filtering / policy block — skip page, continue job
+      const isFiltered = err.message?.includes('content filtering') ||
+                         err.message?.includes('content_policy') ||
+                         err.message?.includes('Output blocked');
+      if (isFiltered) {
+        console.warn(`Job ${job.id} page ${pageNum} skipped (content filter)`);
+        pagesDone++;
+        db.prepare(`UPDATE jobs SET pages_done = ?, updated_at = unixepoch() WHERE id = ?`).run(pagesDone, job.id);
+        continue;
+      }
+
       db.prepare(`UPDATE jobs SET status = 'failed', error = ?, updated_at = unixepoch() WHERE id = ?`).run(err.message, job.id);
       if (job.pdf_path) try { fs.unlinkSync(job.pdf_path); } catch {}
       return;
