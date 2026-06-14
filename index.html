@@ -1625,9 +1625,6 @@ async function initHostedMode() {
   // Always show account link
   document.getElementById('account-header-link').style.display = 'flex';
 
-  const bar = document.getElementById('credits-bar');
-  bar.style.display = 'flex';
-
   // Hide API key bar when using hosted mode (no key stored)
   if (!localStorage.getItem(STORAGE_KEY)) {
     document.getElementById('apikey-bar').style.display = 'none';
@@ -1637,6 +1634,8 @@ async function initHostedMode() {
   try {
     const token = getSessionToken();
     if (token) {
+      const bar = document.getElementById('credits-bar');
+      bar.style.display = 'flex';
       const r = await fetch(`${WORKER_URL}/api/auth/me`, { headers: { 'Authorization': 'Bearer ' + token } });
       const d = await r.json();
       updateCreditsBadge(d.balance ?? 0);
@@ -1647,13 +1646,9 @@ async function initHostedMode() {
         ms.style.pointerEvents = 'none';
         ms.style.opacity = '0.5';
       }
-    } else {
-      const credits = await fetchCredits();
-      updateCreditsBadge(credits ?? 0);
     }
   } catch {
-    const credits = await fetchCredits();
-    updateCreditsBadge(credits ?? 0);
+    // silently ignore — credits bar stays hidden for unauthenticated users
   }
 
 
