@@ -813,6 +813,16 @@
     API key saved. <a id="apikey-change">Change</a>
   </div>
 
+  <!-- Login prompt for unauthenticated users -->
+  <div id="login-prompt" style="display:none; text-align:center; padding:3rem 1rem;">
+    <div style="font-size:2.5rem; margin-bottom:1rem;">📕</div>
+    <h2 style="font-size:1.2rem; font-weight:600; margin-bottom:0.5rem;">Sign in to use Fraktur Reader</h2>
+    <p style="font-size:0.9rem; color:var(--text-2); margin-bottom:1.5rem;">Create a free account to get started. First 10 pages are on us.</p>
+    <div style="display:flex; gap:0.75rem; justify-content:center; flex-wrap:wrap;">
+      <a href="/account" style="padding:0.55rem 1.4rem; background:var(--accent); color:#fff; border-radius:var(--radius-sm); text-decoration:none; font-weight:600; font-size:0.9rem;">Sign in / Register</a>
+    </div>
+  </div>
+
   <!-- ── Main PDF workflow ── -->
   <div id="pdf-section">
 
@@ -1625,30 +1635,42 @@ async function initHostedMode() {
   // Always show account link
   document.getElementById('account-header-link').style.display = 'flex';
 
-  // Hide API key bar when using hosted mode (no key stored)
-  if (!localStorage.getItem(STORAGE_KEY)) {
-    document.getElementById('apikey-bar').style.display = 'none';
+  // Always hide API key bar in hosted mode
+  document.getElementById('apikey-bar').style.display = 'none';
+  document.getElementById('apikey-saved').style.display = 'none';
+
+  const token = getSessionToken();
+  if (!token) {
+    // Not logged in — show login prompt, hide the app
+    document.getElementById('login-prompt').style.display = 'block';
+    document.getElementById('pdf-section').style.display = 'none';
+    return;
   }
 
-  // Single /api/auth/me call: update badge + restrict model
+  // Logged in — show credits bar and load user info
   try {
-    const token = getSessionToken();
-    if (token) {
-      const bar = document.getElementById('credits-bar');
-      bar.style.display = 'flex';
-      const r = await fetch(`${WORKER_URL}/api/auth/me`, { headers: { 'Authorization': 'Bearer ' + token } });
-      const d = await r.json();
-      updateCreditsBadge(d.balance ?? 0);
-      if (d.email !== 'rbevzenko@gmail.com') {
-        const ms = document.getElementById('model-select');
-        ms.value = 'claude-haiku-4-5-20251001';
-        ms.disabled = true;
-        ms.style.pointerEvents = 'none';
-        ms.style.opacity = '0.5';
-      }
+    const bar = document.getElementById('credits-bar');
+    bar.style.display = 'flex';
+    const r = await fetch(`${WORKER_URL}/api/auth/me`, { headers: { 'Authorization': 'Bearer ' + token } });
+    const d = await r.json();
+    if (d.error) {
+      // Token invalid/expired — show login prompt
+      localStorage.removeItem(TOKEN_KEY);
+      document.getElementById('login-prompt').style.display = 'block';
+      document.getElementById('pdf-section').style.display = 'none';
+      bar.style.display = 'none';
+      return;
+    }
+    updateCreditsBadge(d.balance ?? 0);
+    if (d.email !== 'rbevzenko@gmail.com') {
+      const ms = document.getElementById('model-select');
+      ms.value = 'claude-haiku-4-5-20251001';
+      ms.disabled = true;
+      ms.style.pointerEvents = 'none';
+      ms.style.opacity = '0.5';
     }
   } catch {
-    // silently ignore — credits bar stays hidden for unauthenticated users
+    // Network error — let user proceed anyway
   }
 
 
