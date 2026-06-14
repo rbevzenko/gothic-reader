@@ -154,6 +154,16 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_jobs_uid     ON jobs(uid);
   CREATE INDEX IF NOT EXISTS idx_jobs_status  ON jobs(status);
 
+  CREATE TABLE IF NOT EXISTS visits (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    path       TEXT    NOT NULL,
+    ip         TEXT,
+    ua         TEXT,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_visits_ts ON visits(created_at);
+
   CREATE TABLE IF NOT EXISTS job_page_images (
     job_id     INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
     page_num   INTEGER NOT NULL,
@@ -254,6 +264,19 @@ app.post('/api/stripe-webhook',   express.raw({ type: 'application/json' }), han
 app.post('/api/yookassa-webhook', express.json(), handleYooKassaWebhook);
 app.use(express.json({ limit: '20mb' }));
 
+// ── Visit logging middleware ───────────────────────────────────────────────────
+const stmtLogVisit = db.prepare(`INSERT INTO visits (path, ip, ua) VALUES (?, ?, ?)`);
+app.use((req, res, next) => {
+  // Log only page loads, skip API, static assets, admin
+  if (!req.path.startsWith('/api/') && !req.path.startsWith('/admin') &&
+      !req.path.match(/\.(js|css|png|ico|woff|map)$/)) {
+    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
+    const ua = (req.headers['user-agent'] || '').slice(0, 200);
+    try { stmtLogVisit.run(req.path, ip, ua); } catch {}
+  }
+  next();
+});
+
 // ── Admin auth middleware ─────────────────────────────────────────────────────
 
 function adminAuth(req, res, next) {
@@ -309,6 +332,7 @@ app.get('/admin/api/stats',    adminAuth, adminStats);
 app.get('/admin/api/users',    adminAuth, adminUsers);
 app.get('/admin/api/payments', adminAuth, adminPayments);
 app.get('/admin/api/requests', adminAuth, adminRequests);
+app.get('/admin/api/visits',   adminAuth, adminVisits);
 app.post('/admin/api/credits', adminAuth, adminSetCredits);
 app.get('/admin/api/settings', adminAuth, adminGetSettings);
 app.post('/admin/api/settings',adminAuth, adminSaveSettings);
@@ -1363,6 +1387,29 @@ function adminSetCredits(req, res) {
   res.json({ uid, balance: newBalance });
 }
 
+function adminVisits(req, res) {
+  const hours  = parseInt(req.query.hours) || 3;
+  const since  = Math.floor(Date.now() / 1000) - hours * 3600;
+
+  const total  = db.prepare(`SELECT COUNT(*) as n FROM visits WHERE created_at >= ?`).get(since).n;
+  const byPath = db.prepare(`
+    SELECT path, COUNT(*) as n FROM visits WHERE created_at >= ?
+    GROUP BY path ORDER BY n DESC LIMIT 20
+  `).all(since);
+  const byHour = db.prepare(`
+    SELECT strftime('%Y-%m-%dT%H:00:00', datetime(created_at, 'unixepoch')) as hour,
+           COUNT(*) as n
+    FROM visits WHERE created_at >= ?
+    GROUP BY hour ORDER BY hour
+  `).all(since);
+  const recent = db.prepare(`
+    SELECT path, ip, ua, created_at FROM visits WHERE created_at >= ?
+    ORDER BY created_at DESC LIMIT 100
+  `).all(since);
+
+  res.json({ total, by_path: byPath, by_hour: byHour, recent });
+}
+
 function adminGetSettings(req, res) {
   const packages    = getSetting('packages');
   const maintenance = getSetting('maintenance', '0');
@@ -1456,6 +1503,7 @@ input[type=text], input[type=number] { padding: 0.3rem 0.6rem; border: 1px solid
     <button class="tab" onclick="showSection('users')">Users</button>
     <button class="tab" onclick="showSection('payments')">Payments</button>
     <button class="tab" onclick="showSection('economics')">Economics</button>
+    <button class="tab" onclick="showSection('traffic')">Traffic</button>
     <button class="tab" onclick="showSection('settings')">Settings</button>
   </div>
 </div>
@@ -1529,6 +1577,36 @@ input[type=text], input[type=number] { padding: 0.3rem 0.6rem; border: 1px solid
   </div>
 </div>
 
+<!-- Traffic -->
+<div id="s-traffic" class="section">
+  <div class="card">
+    <div class="row" style="margin-bottom:0.75rem">
+      <span style="font-weight:600">Page visits</span>
+      <div style="margin-left:auto;display:flex;gap:0.4rem">
+        <button class="btn btn-sm period-btn-traffic active" onclick="setTrafficHours(3)">3h</button>
+        <button class="btn btn-sm period-btn-traffic" onclick="setTrafficHours(24)">24h</button>
+        <button class="btn btn-sm period-btn-traffic" onclick="setTrafficHours(168)">7d</button>
+      </div>
+    </div>
+    <div id="traffic-total" style="font-size:0.85rem;color:var(--text-2);margin-bottom:0.75rem"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+      <div>
+        <div style="font-size:0.75rem;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:0.4rem">Top pages</div>
+        <table style="width:100%"><tbody id="traffic-by-path"></tbody></table>
+      </div>
+      <div>
+        <div style="font-size:0.75rem;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:0.4rem">By hour</div>
+        <table style="width:100%"><tbody id="traffic-by-hour"></tbody></table>
+      </div>
+    </div>
+    <div style="font-size:0.75rem;font-weight:600;color:var(--text-3);text-transform:uppercase;margin:1rem 0 0.4rem">Recent visits</div>
+    <table style="width:100%;font-size:0.78rem">
+      <thead><tr><th>Time</th><th>Path</th><th>IP</th><th>UA</th></tr></thead>
+      <tbody id="traffic-recent"></tbody>
+    </table>
+  </div>
+</div>
+
 <!-- Settings -->
 <div id="s-settings" class="section">
   <div class="card" style="max-width:600px">
@@ -1584,6 +1662,7 @@ function showSection(name) {
   if (name === 'dashboard' || name === 'economics') loadStats();
   if (name === 'users')    loadUsers();
   if (name === 'payments') loadPayments();
+  if (name === 'traffic')  loadTraffic();
   if (name === 'settings') loadSettings();
 }
 
@@ -1740,6 +1819,27 @@ async function loadPayments() {
 function paymentsPage(dir) {
   paymentsOffset = Math.max(0, paymentsOffset + dir * PAGE);
   loadPayments();
+}
+
+let currentTrafficHours = 3;
+function setTrafficHours(h) {
+  currentTrafficHours = h;
+  document.querySelectorAll('.period-btn-traffic').forEach((b, i) => b.classList.toggle('active', [3,24,168][i] === h));
+  loadTraffic();
+}
+async function loadTraffic() {
+  const d = await api(\`/admin/api/visits?hours=\${currentTrafficHours}\`);
+  document.getElementById('traffic-total').textContent = \`\${d.total} visits in last \${currentTrafficHours}h\`;
+  document.getElementById('traffic-by-path').innerHTML = d.by_path.map(r =>
+    \`<tr><td>\${r.path}</td><td style="text-align:right;font-weight:600">\${r.n}</td></tr>\`
+  ).join('');
+  document.getElementById('traffic-by-hour').innerHTML = d.by_hour.map(r =>
+    \`<tr><td style="font-family:monospace;font-size:0.75rem">\${r.hour.slice(11,16)}</td><td style="text-align:right;font-weight:600">\${r.n}</td></tr>\`
+  ).join('');
+  const fmt = ts => new Date(ts * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  document.getElementById('traffic-recent').innerHTML = d.recent.map(r =>
+    \`<tr><td style="font-family:monospace">\${fmt(r.created_at)}</td><td>\${r.path}</td><td style="font-family:monospace">\${r.ip||'—'}</td><td style="color:var(--text-3);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">\${r.ua||'—'}</td></tr>\`
+  ).join('');
 }
 
 async function loadSettings() {
