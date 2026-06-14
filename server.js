@@ -1280,8 +1280,8 @@ async function handleYooKassaWebhook(req, res) {
 // ── Admin handlers ────────────────────────────────────────────────────────────
 
 function adminStats(req, res) {
-  const period = req.query.period || '30'; // days
-  const since  = Math.floor(Date.now() / 1000) - parseInt(period) * 86400;
+  const period = req.query.period || '30'; // days; 0 = all time
+  const since  = parseInt(period) === 0 ? 0 : Math.floor(Date.now() / 1000) - parseInt(period) * 86400;
 
   const revenue = db.prepare(`SELECT COALESCE(SUM(amount_eur),0) as total FROM payments WHERE created_at >= ?`).get(since).total;
   const costUsd = db.prepare(`SELECT COALESCE(SUM(cost_usd),0) as total FROM requests WHERE created_at >= ?`).get(since).total;
@@ -1516,6 +1516,7 @@ input[type=text], input[type=number] { padding: 0.3rem 0.6rem; border: 1px solid
     <button class="period-btn active" onclick="setPeriod(7)">7d</button>
     <button class="period-btn" onclick="setPeriod(30)">30d</button>
     <button class="period-btn" onclick="setPeriod(90)">90d</button>
+    <button class="period-btn" onclick="setPeriod(0)">All</button>
   </div>
   <div class="kpi-grid" id="kpis"></div>
   <div class="charts-row" style="margin-top:0.75rem">
@@ -1569,6 +1570,7 @@ input[type=text], input[type=number] { padding: 0.3rem 0.6rem; border: 1px solid
     <button class="period-btn active" onclick="setPeriodEcon(7)">7d</button>
     <button class="period-btn" onclick="setPeriodEcon(30)">30d</button>
     <button class="period-btn" onclick="setPeriodEcon(90)">90d</button>
+    <button class="period-btn" onclick="setPeriodEcon(0)">All</button>
   </div>
   <div class="kpi-grid" id="econ-kpis"></div>
   <div class="charts-row" style="margin-top:0.75rem">
@@ -1668,12 +1670,12 @@ function showSection(name) {
 
 function setPeriod(d) {
   currentPeriod = d;
-  document.querySelectorAll('#s-dashboard .period-btn').forEach((b, i) => b.classList.toggle('active', [7,30,90][i] === d));
+  document.querySelectorAll('#s-dashboard .period-btn').forEach((b, i) => b.classList.toggle('active', [7,30,90,0][i] === d));
   loadStats();
 }
 function setPeriodEcon(d) {
   currentPeriodEcon = d;
-  document.querySelectorAll('#s-economics .period-btn').forEach((b, i) => b.classList.toggle('active', [7,30,90][i] === d));
+  document.querySelectorAll('#s-economics .period-btn').forEach((b, i) => b.classList.toggle('active', [7,30,90,0][i] === d));
   loadStats();
 }
 
@@ -1692,7 +1694,7 @@ function shortUid(uid) { return uid ? uid.slice(0,8)+'…' : '—'; }
 
 async function loadStats() {
   const period = document.getElementById('s-economics').classList.contains('active') ? currentPeriodEcon : currentPeriod;
-  const d = await api('/admin/api/stats?period=' + period);
+  const d = await api('/admin/api/stats?period=' + (period === 0 ? '0' : period));
 
   // KPI cards
   const costEur = d.cost_usd * 0.93;
