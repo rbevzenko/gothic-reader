@@ -1635,9 +1635,10 @@ async function initHostedMode() {
   // Always show account link
   document.getElementById('account-header-link').style.display = 'flex';
 
-  // Always hide API key bar in hosted mode
+  // Always hide API key bar in hosted mode and clear any stored key
   document.getElementById('apikey-bar').style.display = 'none';
   document.getElementById('apikey-saved').style.display = 'none';
+  localStorage.removeItem(STORAGE_KEY);
 
   const token = getSessionToken();
   if (!token) {
