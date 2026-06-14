@@ -189,6 +189,9 @@ const stmtCleanSessions = db.prepare(`DELETE FROM sessions WHERE expires_at <= u
 // Clean expired sessions on startup
 stmtCleanSessions.run();
 
+// Reset jobs that were running when the process was killed
+db.prepare(`UPDATE jobs SET status='pending', updated_at=unixepoch() WHERE status='running'`).run();
+
 function fetchBalance(uid) {
   return stmtGetCredits.get(uid)?.balance ?? 0;
 }
@@ -708,9 +711,10 @@ async function callClaudeWithRetry(model, systemPrompt, messages) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({ model, max_tokens: 4096, system: systemPrompt, messages }),
+      signal: AbortSignal.timeout(120_000),
     });
     data = await upstream.json();
-    if (upstream.status === 529 || upstream.status >= 500) continue;
+    if (upstream.status === 429 || upstream.status === 529 || upstream.status >= 500) continue;
     break;
   }
   if (!upstream.ok) throw new Error(data.error?.message || `Claude API error ${upstream.status}`);
@@ -732,8 +736,7 @@ async function processJob(job) {
 
     const credits = fetchBalance(job.uid);
     if (credits <= 0) {
-      db.prepare(`UPDATE jobs SET status = 'failed', error = 'no_credits', updated_at = unixepoch() WHERE id = ?`).run(job.id);
-      if (job.pdf_path) try { fs.unlinkSync(job.pdf_path); } catch {}
+      db.prepare(`UPDATE jobs SET status = 'paused', error = 'no_credits', updated_at = unixepoch() WHERE id = ?`).run(job.id);
       return;
     }
 
@@ -800,6 +803,17 @@ async function processJob(job) {
                          err.message?.includes('Output blocked');
       if (isFiltered) {
         console.warn(`Job ${job.id} page ${pageNum} skipped (content filter)`);
+        pagesDone++;
+        db.prepare(`UPDATE jobs SET pages_done = ?, updated_at = unixepoch() WHERE id = ?`).run(pagesDone, job.id);
+        continue;
+      }
+
+      // JSON parse failure or fetch timeout — skip page, continue job
+      const isSkippable = err.message?.includes('JSON') ||
+                          err.name === 'TimeoutError' ||
+                          err.name === 'AbortError';
+      if (isSkippable) {
+        console.warn(`Job ${job.id} page ${pageNum} skipped (${err.message})`);
         pagesDone++;
         db.prepare(`UPDATE jobs SET pages_done = ?, updated_at = unixepoch() WHERE id = ?`).run(pagesDone, job.id);
         continue;
@@ -1158,6 +1172,7 @@ async function handleWebhook(req, res) {
       saveBalance(uid, cur.balance + pkg.credits, (cur.total_bought || 0) + pkg.credits);
       stmtLogPayment.run(uid, package_id, pkg.credits, pkg.amount_eur, event.data.object.id);
       console.log(`[payment] ${uid} +${pkg.credits} credits (${pkg.amount_eur}€)`);
+      db.prepare(`UPDATE jobs SET status='pending', error=NULL, updated_at=unixepoch() WHERE uid=? AND status='paused'`).run(uid);
     }
   }
 
@@ -1232,6 +1247,7 @@ async function handleYooKassaWebhook(req, res) {
     const amount = parseFloat(event.object?.amount?.value || 0);
     stmtLogPayment.run(uid, package_id, pkg.credits, amount / 95, event.object.id); // store as EUR equiv
     console.log(`[yookassa] ${uid} +${pkg.credits} credits`);
+    db.prepare(`UPDATE jobs SET status='pending', error=NULL, updated_at=unixepoch() WHERE uid=? AND status='paused'`).run(uid);
   }
 
   res.send('OK');
