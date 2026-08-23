@@ -1,0 +1,30 @@
+# systemd unit for the Gothic Reader backend (fraktur.app).
+# Install: see "Служба systemd" in README.md
+#
+# ExecStart needs the absolute path to node — check yours with `command -v node`
+# and adjust the line below if it differs.
+
+[Unit]
+Description=Gothic Reader (fraktur.app)
+Documentation=https://github.com/rbevzenko/gothic-reader
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/www/fraktur
+ExecStart=/usr/bin/node /var/www/fraktur/server.js
+
+# Keys and DB path come from /var/www/fraktur/.env, which the app reads
+# itself (dotenv) relative to WorkingDirectory.
+
+Restart=always
+RestartSec=3
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fraktur
+
+[Install]
+WantedBy=multi-user.target
