@@ -172,6 +172,13 @@ db.exec(`
   );
 `);
 
+// Columns added after the initial schema — existing DBs need them backfilled.
+for (const stmt of [
+  `ALTER TABLE jobs ADD COLUMN spread INTEGER NOT NULL DEFAULT 0`,
+]) {
+  try { db.exec(stmt); } catch (e) { if (!/duplicate column/i.test(e.message)) throw e; }
+}
+
 // Prepared statements — credits
 const stmtGetCredits    = db.prepare(`SELECT balance, total_bought, created_at FROM credits WHERE uid = ?`);
 const stmtUpsertCredits = db.prepare(`
@@ -547,6 +554,7 @@ function createJob(req, res) {
   } catch { pages = null; }
   const { project_id, mode, lang, model } = req.body;
   const latin = req.body.latin === '1' || req.body.latin === 1 || req.body.latin === true;
+  const spread = req.body.spread === '1' || req.body.spread === 1 || req.body.spread === true;
 
   if (!project_id || !pages || !Array.isArray(pages) || pages.length === 0) {
     if (req.file) fs.unlinkSync(req.file.path);
@@ -569,10 +577,10 @@ function createJob(req, res) {
   }
 
   const result = db.prepare(`
-    INSERT INTO jobs (uid, project_id, pages, mode, lang, model, latin, pages_total, pdf_path)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO jobs (uid, project_id, pages, mode, lang, model, latin, spread, pages_total, pdf_path)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(req.uid, project_id, JSON.stringify(pages), mode || 'modernize', lang || 'русский',
-         model || 'claude-haiku-4-5-20251001', latin ? 1 : 0, pages.length, req.file.path);
+         model || 'claude-haiku-4-5-20251001', latin ? 1 : 0, spread ? 1 : 0, pages.length, req.file.path);
 
   res.json({ job_id: result.lastInsertRowid });
 }
@@ -622,10 +630,56 @@ app.post('/api/jobs/:id/images', requireAuth, (req, res) => {
 const LATIN_FIELD = `  "latin_fragments": [\n    { "original": "...", "translation": "...", "source": "..." }\n  ]`;
 const NO_LATIN_FIELD = `  "latin_fragments": []`;
 
-function getOcrPrompt(latin) {
+const MAX_TOKENS        = 4096;
+const MAX_TOKENS_SPREAD = 8192;   // a spread holds two pages of text
+
+// The image shows an open book: left page and right page must stay apart.
+const SPREAD_RULES_DE = `DOPPELSEITE. Das Bild zeigt eine aufgeschlagene Doppelseite: links eine Seite, rechts die darauffolgende.
+- Behandle beide als getrennte Seiten, nicht als einen fortlaufenden Text.
+- Arbeite zuerst die linke Seite vollständig ab (samt ihren Fußnoten), danach die rechte.
+- Der Bundsteg trennt die Seiten: verbinde nie eine Zeile der linken mit einer Zeile der rechten Seite.
+- Fußnoten gehören zu der Seite, auf der sie gedruckt sind.
+- Ist eine Seite leer (Vorsatz, Tafel, Rückseite), gib für sie ein leeres paragraphs-Array zurück.`;
+
+const SPREAD_RULES_RU = `РАЗВОРОТ. На изображении разворот книги: слева одна страница, справа следующая.
+- Обрабатывай их как две отдельные страницы, а не как сплошной текст.
+- Сначала полностью левую страницу (вместе с её сносками), затем правую.
+- Строку левой страницы никогда не склеивай со строкой правой: их разделяет корешок.
+- Сноски относятся к той странице, на которой они напечатаны.
+- Если страница пустая (форзац, вклейка, оборот), верни для неё пустой массив paragraphs.`;
+
+// Single page → flat object; spread → { pages: [left, right] }.
+function jsonSkeleton(latin, spread, titleDesc, paraExample) {
+  if (!spread) {
+    return `{
+  "title": "${titleDesc}",
+  "paragraphs": [${paraExample}],
+${latin ? LATIN_FIELD : NO_LATIN_FIELD}
+}`;
+  }
+  const latinField = latin
+    ? '[ { "original": "...", "translation": "...", "source": "..." } ]'
+    : '[]';
+  const page = side =>
+    `    { "side": "${side}", "title": "${titleDesc}", "paragraphs": [${paraExample}], "latin_fragments": ${latinField} }`;
+  return `{
+  "pages": [
+${page('left')},
+${page('right')}
+  ]
+}`;
+}
+
+function getUserText(spread) {
+  return spread
+    ? 'Das Bild ist eine Doppelseite. Lies linke und rechte Seite getrennt. Jeden Absatz separat. Nur JSON.'
+    : 'Lies die Seite. Jeden Absatz separat. Nur JSON.';
+}
+
+function getOcrPrompt(latin, spread) {
   return `Du bist Experte für deutsche Rechtsliteratur des 19. Jahrhunderts in Frakturschrift.
 Lies den Text aus dem Bild und gib ihn in modernem Deutsch wieder.
-
+${spread ? '\n' + SPREAD_RULES_DE + '\n' : ''}
 Regeln:
 1. Lies den Frakturtext genau, beachte archaische Orthographie.
 2. Gib den Text in moderner deutscher Rechtschreibung wieder: ſ→s, Majuskelregeln modernisieren.
@@ -635,15 +689,11 @@ Regeln:
 6. Sperrsatz (g e s p e r r t e r  T e x t) — Leerzeichen zwischen Buchstaben entfernen, Wort normal schreiben.
 7. Antworte NUR mit gültigem JSON — kein Markdown, keine Präambel.
 8. Alle Anführungszeichen in Strings escapen: \"
-
-{
-  "title": "Seitentitel oder leerer String",
-  "paragraphs": ["erster Absatz", "zweiter Absatz"],
-${latin ? LATIN_FIELD : NO_LATIN_FIELD}
-}`;
+${spread ? '9. Gib genau zwei Einträge in pages zurück: zuerst "left", dann "right".\n' : ''}
+${jsonSkeleton(latin, spread, 'Seitentitel oder leerer String', '"erster Absatz", "zweiter Absatz"')}`;
 }
 
-function getTranslatePrompt(lang, latin) {
+function getTranslatePrompt(lang, latin, spread) {
   return `Ты — профессиональный переводчик немецких юридических текстов XIX века.
 Переведи следующий текст на ${lang}. Текст уже транскрибирован с готического шрифта в современный немецкий.
 
@@ -653,16 +703,16 @@ function getTranslatePrompt(lang, latin) {
 3. ${latin ? 'Латинские фрагменты оставь в original, добавь перевод и источник.' : 'latin_fragments всегда возвращай пустым массивом.'}
 4. Отвечай ТОЛЬКО валидным JSON — без markdown, без преамбулы.
 5. Все кавычки внутри строк JSON экранируй: \"
-
+${spread ? '6. Во входном JSON — разворот: массив pages из двух страниц. Верни тот же массив pages, в том же порядке и с теми же значениями side; переводи каждую страницу отдельно, страницы не объединяй.\n' : ''}
 Входной JSON:
 `;
 }
 
-function getPrompts(mode, lang, latin) {
+function getPrompts(mode, lang, latin, spread) {
   if (mode === 'modernize') {
     return `Du bist Experte für deutsche Rechtsliteratur des 19. Jahrhunderts in Frakturschrift.
 Deine Aufgabe: Lies den Text aus dem Bild (Frakturschrift) und gib ihn in modernem Deutsch wieder.
-
+${spread ? '\n' + SPREAD_RULES_DE + '\n' : ''}
 Regeln:
 1. Lies den Frakturtext genau, beachte archaische Orthographie.
 2. Gib den Text in moderner deutscher Rechtschreibung wieder: ſ→s, Majuskelregeln modernisieren, veraltete Schreibweisen aktualisieren.
@@ -673,30 +723,22 @@ Regeln:
 7. ${latin ? 'Lateinische Fragmente separat mit Übersetzung und Quelle auflisten.' : 'latin_fragments immer als leeres Array zurückgeben.'}
 8. Antworte NUR mit gültigem JSON — kein Markdown, keine Präambel.
 9. WICHTIG: Alle Anführungszeichen innerhalb von Strings müssen escaped werden: \" — niemals rohe " innerhalb eines JSON-String-Werts.
-
-{
-  "title": "Seitentitel auf modernem Deutsch, oder leerer String",
-  "paragraphs": ["erster Absatz", "zweiter Absatz"],
-${latin ? LATIN_FIELD : NO_LATIN_FIELD}
-}`;
+${spread ? '10. Gib genau zwei Einträge in pages zurück: zuerst "left", dann "right".\n' : ''}
+${jsonSkeleton(latin, spread, 'Seitentitel auf modernem Deutsch, oder leerer String', '"erster Absatz", "zweiter Absatz"')}`;
   } else {
     return `Ты — специалист по немецкой юридической литературе XIX века.
 Читаешь тексты, набранные готическим шрифтом (Fraktur), переводишь на ${lang}.
-
+${spread ? '\n' + SPREAD_RULES_RU + '\n' : ''}
 Правила:
 1. Основной текст — немецкий в Fraktur. Читай точно, учитывая архаичную орфографию.
 2. ${latin ? 'Латинские слова обычно набраны антиквой — выделяй их отдельно.' : 'latin_fragments всегда возвращай пустым массивом.'}
-3. ${latin ? 'Для латинских фрагментов: дай перевод + источник.' : ''}
+3. ${latin ? 'Для латинских фрагментов: дай перевод + источник.' : 'Разрядку (р а з р я д к а) записывай обычным словом, без пробелов между буквами.'}
 4. Каждый абзац оригинала — отдельный элемент массива.
 5. СНОСКИ ОБЯЗАТЕЛЬНЫ. Сноски в нижней части страницы (обозначены цифрами 1), 2), звёздочками * и т.п.) — переводи их полностью и включай в массив paragraphs как отдельные элементы. Не пропускай ни одну сноску.
 6. Отвечай ТОЛЬКО валидным JSON — без markdown, без преамбулы.
 7. ВАЖНО: все кавычки внутри строк JSON должны быть экранированы: \" — никогда не используй голые " внутри значения строки.
-
-{
-  "title": "заголовок на ${lang}, или пустая строка",
-  "paragraphs": ["перевод первого абзаца", "перевод второго абзаца"],
-${latin ? LATIN_FIELD : NO_LATIN_FIELD}
-}`;
+${spread ? '8. Верни ровно два элемента в pages: сначала "left", затем "right".\n' : ''}
+${jsonSkeleton(latin, spread, 'заголовок на ' + lang + ', или пустая строка', '"перевод первого абзаца", "перевод второго абзаца"')}`;
   }
 }
 
@@ -720,7 +762,7 @@ async function renderPdfPage(pdfPath, pageNum) {
   return b64;
 }
 
-async function callClaudeWithRetry(model, systemPrompt, messages) {
+async function callClaudeWithRetry(model, systemPrompt, messages, maxTokens = MAX_TOKENS) {
   let upstream, data;
   for (let attempt = 0; attempt < 10; attempt++) {
     if (attempt > 0) {
@@ -734,7 +776,7 @@ async function callClaudeWithRetry(model, systemPrompt, messages) {
         'x-api-key': process.env.ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
       },
-      body: JSON.stringify({ model, max_tokens: 4096, system: systemPrompt, messages }),
+      body: JSON.stringify({ model, max_tokens: maxTokens, system: systemPrompt, messages }),
       signal: AbortSignal.timeout(120_000),
     });
     data = await upstream.json();
@@ -750,6 +792,8 @@ async function processJob(job) {
   const pages = JSON.parse(job.pages);
   let pagesDone = 0;
   const latin = job.latin === 1;
+  const spread = job.spread === 1;
+  const maxTokens = spread ? MAX_TOKENS_SPREAD : MAX_TOKENS;
 
   for (const pageNum of pages) {
     const current = db.prepare(`SELECT status FROM jobs WHERE id = ?`).get(job.id);
@@ -776,7 +820,7 @@ async function processJob(job) {
       const b64 = await renderPdfPage(job.pdf_path, pageNum);
       const imageMsg = [
         { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
-        { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' },
+        { type: 'text', text: getUserText(spread) },
       ];
 
       let result;
@@ -785,7 +829,7 @@ async function processJob(job) {
         // Stage 1: Haiku OCR → modern German JSON
         const OCR_MODEL = 'claude-haiku-4-5-20251001';
         const { data: d1, inputTokens: i1, outputTokens: o1 } = await callClaudeWithRetry(
-          OCR_MODEL, getOcrPrompt(latin), [{ role: 'user', content: imageMsg }]
+          OCR_MODEL, getOcrPrompt(latin, spread), [{ role: 'user', content: imageMsg }], maxTokens
         );
         stmtLogRequest.run(job.uid, OCR_MODEL, i1, o1, calcCost(OCR_MODEL, i1, o1));
         const germanJson = parseJsonResult((d1.content || []).map(b => b.text || '').join(''));
@@ -793,17 +837,17 @@ async function processJob(job) {
         // Stage 2: Sonnet translates text only
         const TRANSLATE_MODEL = 'claude-sonnet-4-6';
         const { data: d2, inputTokens: i2, outputTokens: o2 } = await callClaudeWithRetry(
-          TRANSLATE_MODEL, getTranslatePrompt(job.lang, latin),
-          [{ role: 'user', content: [{ type: 'text', text: JSON.stringify(germanJson) }] }]
+          TRANSLATE_MODEL, getTranslatePrompt(job.lang, latin, spread),
+          [{ role: 'user', content: [{ type: 'text', text: JSON.stringify(germanJson) }] }], maxTokens
         );
         stmtLogRequest.run(job.uid, TRANSLATE_MODEL, i2, o2, calcCost(TRANSLATE_MODEL, i2, o2));
         result = parseJsonResult((d2.content || []).map(b => b.text || '').join(''));
 
       } else {
         // Single stage: modernize
-        const prompt = getPrompts(job.mode, job.lang, latin);
+        const prompt = getPrompts(job.mode, job.lang, latin, spread);
         const { data, inputTokens, outputTokens } = await callClaudeWithRetry(
-          job.model, prompt, [{ role: 'user', content: imageMsg }]
+          job.model, prompt, [{ role: 'user', content: imageMsg }], maxTokens
         );
         stmtLogRequest.run(job.uid, job.model, inputTokens, outputTokens, calcCost(job.model, inputTokens, outputTokens));
         result = parseJsonResult((data.content || []).map(b => b.text || '').join(''));
@@ -986,7 +1030,7 @@ async function handleTranslateImage(req, res) {
   const credits = fetchBalance(uid);
   if (credits <= 0) return res.status(402).json({ error: 'no_credits' });
 
-  const { image_b64, media_type, mode, lang, latin } = req.body;
+  const { image_b64, media_type, mode, lang, latin, spread } = req.body;
   if (!image_b64) return res.status(400).json({ error: 'image_b64 required' });
 
   const mediaType = ['image/jpeg','image/png','image/gif','image/webp'].includes(media_type)
@@ -996,31 +1040,32 @@ async function handleTranslateImage(req, res) {
 
   try {
     let result;
+    const maxTokens = spread ? MAX_TOKENS_SPREAD : MAX_TOKENS;
     const imageMsg = [
       { type: 'image', source: { type: 'base64', media_type: mediaType, data: image_b64 } },
-      { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' },
+      { type: 'text', text: getUserText(!!spread) },
     ];
 
     if (mode === 'translate') {
       const OCR_MODEL = 'claude-haiku-4-5-20251001';
       const { data: d1, inputTokens: i1, outputTokens: o1 } = await callClaudeApi(
-        OCR_MODEL, getOcrPrompt(!!latin), [{ role: 'user', content: imageMsg }]
+        OCR_MODEL, getOcrPrompt(!!latin, !!spread), [{ role: 'user', content: imageMsg }], maxTokens
       );
       stmtLogRequest.run(uid, OCR_MODEL, i1, o1, calcCost(OCR_MODEL, i1, o1));
       const germanJson = parseJsonResult((d1.content || []).map(b => b.text || '').join(''));
 
       const TRANSLATE_MODEL = 'claude-sonnet-4-6';
       const { data: d2, inputTokens: i2, outputTokens: o2 } = await callClaudeApi(
-        TRANSLATE_MODEL, getTranslatePrompt(lang || 'русский', !!latin),
-        [{ role: 'user', content: [{ type: 'text', text: JSON.stringify(germanJson) }] }]
+        TRANSLATE_MODEL, getTranslatePrompt(lang || 'русский', !!latin, !!spread),
+        [{ role: 'user', content: [{ type: 'text', text: JSON.stringify(germanJson) }] }], maxTokens
       );
       stmtLogRequest.run(uid, TRANSLATE_MODEL, i2, o2, calcCost(TRANSLATE_MODEL, i2, o2));
       result = parseJsonResult((d2.content || []).map(b => b.text || '').join(''));
     } else {
-      const systemPrompt = getPrompts(mode || 'modernize', lang || 'русский', !!latin);
+      const systemPrompt = getPrompts(mode || 'modernize', lang || 'русский', !!latin, !!spread);
       const useModel = 'claude-haiku-4-5-20251001';
       const { data, inputTokens, outputTokens } = await callClaudeApi(
-        useModel, systemPrompt, [{ role: 'user', content: imageMsg }]
+        useModel, systemPrompt, [{ role: 'user', content: imageMsg }], maxTokens
       );
       stmtLogRequest.run(uid, useModel, inputTokens, outputTokens, calcCost(useModel, inputTokens, outputTokens));
       result = parseJsonResult((data.content || []).map(b => b.text || '').join(''));
@@ -1034,7 +1079,7 @@ async function handleTranslateImage(req, res) {
   }
 }
 
-async function callClaudeApi(model, systemPrompt, messages) {
+async function callClaudeApi(model, systemPrompt, messages, maxTokens = MAX_TOKENS) {
   const upstream = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -1042,7 +1087,7 @@ async function callClaudeApi(model, systemPrompt, messages) {
       'x-api-key': process.env.ANTHROPIC_API_KEY,
       'anthropic-version': '2023-06-01',
     },
-    body: JSON.stringify({ model, max_tokens: 4096, system: systemPrompt, messages }),
+    body: JSON.stringify({ model, max_tokens: maxTokens, system: systemPrompt, messages }),
   });
   const data = await upstream.json();
   if (!upstream.ok) throw Object.assign(new Error(data.error?.message || `Claude ${upstream.status}`), { status: upstream.status, data });
@@ -1071,7 +1116,7 @@ async function handleProcessUrl(req, res) {
   const credits = fetchBalance(uid);
   if (credits <= 0) return res.status(402).json({ error: 'no_credits' });
 
-  const { image_url, mode, lang, latin, model } = req.body;
+  const { image_url, mode, lang, latin, spread, model } = req.body;
   // Support legacy calls that send system directly
   const legacySystem = req.body.system;
   if (!image_url) return res.status(400).json({ error: 'image_url required' });
@@ -1094,17 +1139,19 @@ async function handleProcessUrl(req, res) {
 
   try {
     let result;
+    const maxTokens = spread ? MAX_TOKENS_SPREAD : MAX_TOKENS;
 
     if (mode === 'translate') {
       // Stage 1: Haiku reads Fraktur → modern German JSON
       const OCR_MODEL = 'claude-haiku-4-5-20251001';
       const { data: d1, inputTokens: i1, outputTokens: o1 } = await callClaudeApi(
         OCR_MODEL,
-        getOcrPrompt(!!latin),
+        getOcrPrompt(!!latin, !!spread),
         [{ role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageB64 } },
-          { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' },
-        ]}]
+          { type: 'text', text: getUserText(!!spread) },
+        ]}],
+        maxTokens
       );
       stmtLogRequest.run(uid, OCR_MODEL, i1, o1, calcCost(OCR_MODEL, i1, o1));
       const germanJson = parseJsonResult((d1.content || []).map(b => b.text || '').join(''));
@@ -1113,23 +1160,25 @@ async function handleProcessUrl(req, res) {
       const TRANSLATE_MODEL = 'claude-sonnet-4-6';
       const { data: d2, inputTokens: i2, outputTokens: o2 } = await callClaudeApi(
         TRANSLATE_MODEL,
-        getTranslatePrompt(lang || 'русский', !!latin),
-        [{ role: 'user', content: [{ type: 'text', text: JSON.stringify(germanJson) }] }]
+        getTranslatePrompt(lang || 'русский', !!latin, !!spread),
+        [{ role: 'user', content: [{ type: 'text', text: JSON.stringify(germanJson) }] }],
+        maxTokens
       );
       stmtLogRequest.run(uid, TRANSLATE_MODEL, i2, o2, calcCost(TRANSLATE_MODEL, i2, o2));
       result = parseJsonResult((d2.content || []).map(b => b.text || '').join(''));
 
     } else {
       // Single-stage: modernize or legacy
-      const systemPrompt = legacySystem || getPrompts(mode || 'modernize', lang || 'русский', !!latin);
+      const systemPrompt = legacySystem || getPrompts(mode || 'modernize', lang || 'русский', !!latin, !!spread);
       const useModel = model || 'claude-haiku-4-5-20251001';
       const { data, inputTokens, outputTokens } = await callClaudeApi(
         useModel,
         systemPrompt,
         [{ role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageB64 } },
-          { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' },
-        ]}]
+          { type: 'text', text: getUserText(!!spread) },
+        ]}],
+        maxTokens
       );
       stmtLogRequest.run(uid, useModel, inputTokens, outputTokens, calcCost(useModel, inputTokens, outputTokens));
       result = parseJsonResult((data.content || []).map(b => b.text || '').join(''));

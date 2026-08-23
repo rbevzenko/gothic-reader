@@ -736,6 +736,20 @@
   .model-cost.cheap { color: #059669; }
   .model-cost.mid   { color: #d97706; }
 
+  /* Book spread */
+  #spread-label {
+    display: flex; align-items: center; gap: 0.3rem;
+    margin-left: 0.5rem; cursor: pointer;
+    font-size: 0.78rem; color: var(--text); white-space: nowrap;
+  }
+  .page-side-label {
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--text-3); font-weight: 600;
+    margin: 1.4rem 0 0.5rem; padding-top: 0.7rem;
+    border-top: 1px solid var(--border);
+  }
+  #translation .page-side-label:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+
   @media (max-width: 700px) {
     #columns { grid-template-columns: 1fr; }
   }
@@ -865,6 +879,9 @@
       <span class="model-cost" id="model-cost-label"></span>
       <label style="display:none">
         <input type="checkbox" id="latin-toggle"> <span data-i18n="latin_toggle">Latin fragments</span>
+      </label>
+      <label id="spread-label" title="" data-i18n-title="spread_hint">
+        <input type="checkbox" id="spread-toggle"> <span data-i18n="spread_toggle">Book spread</span>
       </label>
       <div class="spacer"></div>
       <button id="process-all-btn"><span>▶</span> <span data-i18n="process_btn">Process Pages</span></button>
@@ -1004,6 +1021,10 @@ const TRANSLATIONS = {
     model_opus: 'Opus 4 — max quality',
     lang_ru: 'Russian', lang_en: 'English', lang_fr: 'French', lang_pl: 'Polish',
     latin_toggle: 'Latin fragments',
+    spread_toggle: 'Book spread',
+    spread_hint: 'The scan holds two book pages — read the left and the right one separately',
+    page_left: 'Left page',
+    page_right: 'Right page',
     process_btn: 'Process Pages',
     pages_label: 'Pages:',
     page_all: 'All',
@@ -1078,6 +1099,10 @@ const TRANSLATIONS = {
     model_opus: 'Opus 4 — maximale Qualität',
     lang_ru: 'Russisch', lang_en: 'Englisch', lang_fr: 'Französisch', lang_pl: 'Polnisch',
     latin_toggle: 'Lateinische Fragmente',
+    spread_toggle: 'Doppelseite',
+    spread_hint: 'Der Scan zeigt zwei Buchseiten — linke und rechte Seite getrennt lesen',
+    page_left: 'Linke Seite',
+    page_right: 'Rechte Seite',
     process_btn: 'Seiten verarbeiten',
     pages_label: 'Seiten:',
     page_all: 'Alle',
@@ -1151,6 +1176,10 @@ const TRANSLATIONS = {
     model_opus: 'Opus 4 — максимум качества',
     lang_ru: 'Русский', lang_en: 'Английский', lang_fr: 'Французский', lang_pl: 'Польский',
     latin_toggle: 'Латинские фрагменты',
+    spread_toggle: 'Разворот',
+    spread_hint: 'На скане две страницы книги — читать левую и правую отдельно',
+    page_left: 'Левая страница',
+    page_right: 'Правая страница',
     process_btn: 'Обработать страницы',
     pages_label: 'Страницы:',
     page_all: 'Все',
@@ -1224,6 +1253,10 @@ const TRANSLATIONS = {
     model_opus: 'Opus 4 — qualité maximale',
     lang_ru: 'Russe', lang_en: 'Anglais', lang_fr: 'Français', lang_pl: 'Polonais',
     latin_toggle: 'Fragments latins',
+    spread_toggle: 'Double page',
+    spread_hint: "Le scan contient deux pages — lire la page de gauche et celle de droite séparément",
+    page_left: 'Page de gauche',
+    page_right: 'Page de droite',
     process_btn: 'Traiter les pages',
     pages_label: 'Pages :',
     page_all: 'Toutes',
@@ -1311,6 +1344,10 @@ function applyLang() {
     el.textContent = t(el.dataset.i18nOpt);
   });
 
+  document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    el.title = t(el.dataset.i18nTitle);
+  });
+
   document.querySelectorAll('.lang-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.lang === currentLang);
   });
@@ -1331,50 +1368,110 @@ function latinEnabled() {
   return document.getElementById('latin-toggle').checked;
 }
 
+// One scan = two book pages, left and right.
+function spreadEnabled() {
+  return !!document.getElementById('spread-toggle')?.checked;
+}
+
+(function initSpreadToggle() {
+  const el = document.getElementById('spread-toggle');
+  if (!el) return;
+  el.checked = localStorage.getItem('gothic_reader_spread') === '1';
+  el.addEventListener('change', () => {
+    localStorage.setItem('gothic_reader_spread', el.checked ? '1' : '0');
+  });
+})();
+
+const MAX_TOKENS        = 4000;
+const MAX_TOKENS_SPREAD = 8000;   // a spread holds two pages of text
+
+function maxTokens() {
+  return spreadEnabled() ? MAX_TOKENS_SPREAD : MAX_TOKENS;
+}
+
+function userText() {
+  return spreadEnabled()
+    ? 'Das Bild ist eine Doppelseite. Lies linke und rechte Seite getrennt. Jeden Absatz separat. Nur JSON.'
+    : 'Lies die Seite. Jeden Absatz separat. Nur JSON.';
+}
+
 const LATIN_FIELD = `  "latin_fragments": [
     { "original": "...", "translation": "...", "source": "..." }
   ]`;
 const NO_LATIN_FIELD = `  "latin_fragments": []`;
 
+const SPREAD_RULES_DE = `DOPPELSEITE. Das Bild zeigt eine aufgeschlagene Doppelseite: links eine Seite, rechts die darauffolgende.
+- Behandle beide als getrennte Seiten, nicht als einen fortlaufenden Text.
+- Arbeite zuerst die linke Seite vollständig ab (samt ihren Fußnoten), danach die rechte.
+- Der Bundsteg trennt die Seiten: verbinde nie eine Zeile der linken mit einer Zeile der rechten Seite.
+- Fußnoten gehören zu der Seite, auf der sie gedruckt sind.
+- Ist eine Seite leer (Vorsatz, Tafel, Rückseite), gib für sie ein leeres paragraphs-Array zurück.`;
+
+const SPREAD_RULES_RU = `РАЗВОРОТ. На изображении разворот книги: слева одна страница, справа следующая.
+- Обрабатывай их как две отдельные страницы, а не как сплошной текст.
+- Сначала полностью левую страницу (вместе с её сносками), затем правую.
+- Строку левой страницы никогда не склеивай со строкой правой: их разделяет корешок.
+- Сноски относятся к той странице, на которой они напечатаны.
+- Если страница пустая (форзац, вклейка, оборот), верни для неё пустой массив paragraphs.`;
+
+// Single page → flat object; spread → { pages: [left, right] }.
+function jsonSkeleton(latin, spread, titleDesc, paraExample) {
+  if (!spread) {
+    return `{
+  "title": "${titleDesc}",
+  "paragraphs": [${paraExample}],
+${latin ? LATIN_FIELD : NO_LATIN_FIELD}
+}`;
+  }
+  const latinField = latin
+    ? '[ { "original": "...", "translation": "...", "source": "..." } ]'
+    : '[]';
+  const page = side =>
+    `    { "side": "${side}", "title": "${titleDesc}", "paragraphs": [${paraExample}], "latin_fragments": ${latinField} }`;
+  return `{
+  "pages": [
+${page('left')},
+${page('right')}
+  ]
+}`;
+}
+
 function PROMPT_MODERNIZE() {
-  const latin = latinEnabled();
+  const latin  = latinEnabled();
+  const spread = spreadEnabled();
   return `Du bist Experte für deutsche Rechtsliteratur des 19. Jahrhunderts in Frakturschrift.
 Deine Aufgabe: Lies den Text aus dem Bild (Frakturschrift) und gib ihn in modernem Deutsch wieder.
-
+${spread ? '\n' + SPREAD_RULES_DE + '\n' : ''}
 Regeln:
 1. Lies den Frakturtext genau, beachte archaische Orthographie.
 2. Gib den Text in moderner deutscher Rechtschreibung wieder: ſ→s, Majuskelregeln modernisieren, veraltete Schreibweisen aktualisieren.
 3. Lateinische Passagen bleiben im Original.
 4. Jeder Absatz des Originals = ein separates Element im Array.
 5. FUßNOTEN PFLICHT. Fußnoten am Seitenende (markiert mit Ziffern 1), 2), Sternchen * usw.) vollständig modernisieren und als eigene Elemente in paragraphs aufnehmen. Keine Fußnote auslassen.
-5. ${latin ? 'Lateinische Fragmente separat mit Übersetzung und Quelle auflisten.' : 'latin_fragments immer als leeres Array zurückgeben.'}
-6. Antworte NUR mit gültigem JSON — kein Markdown, keine Präambel.
-
-{
-  "title": "Seitentitel auf modernem Deutsch, oder leerer String",
-  "paragraphs": ["erster Absatz", "zweiter Absatz"],
-${latin ? LATIN_FIELD : NO_LATIN_FIELD}
-}`;
+6. Sperrsatz (g e s p e r r t e r  T e x t) — Leerzeichen zwischen Buchstaben entfernen, Wort normal schreiben.
+7. ${latin ? 'Lateinische Fragmente separat mit Übersetzung und Quelle auflisten.' : 'latin_fragments immer als leeres Array zurückgeben.'}
+8. Antworte NUR mit gültigem JSON — kein Markdown, keine Präambel.
+9. Alle Anführungszeichen innerhalb von Strings escapen: \" — niemals rohe " innerhalb eines JSON-String-Werts.
+${spread ? '10. Gib genau zwei Einträge in pages zurück: zuerst "left", dann "right".\n' : ''}
+${jsonSkeleton(latin, spread, 'Seitentitel auf modernem Deutsch, oder leerer String', '"erster Absatz", "zweiter Absatz"')}`;
 }
 
 function PROMPT_TRANSLATE(lang) {
-  const latin = latinEnabled();
+  const latin  = latinEnabled();
+  const spread = spreadEnabled();
   return `Ты — специалист по немецкой юридической литературе XIX века.
 Читаешь тексты, набранные готическим шрифтом (Fraktur), переводишь на ${lang}.
-
+${spread ? '\n' + SPREAD_RULES_RU + '\n' : ''}
 Правила:
 1. Основной текст — немецкий в Fraktur. Читай точно, учитывая архаичную орфографию.
-2. ${latin ? 'Латинские слова обычно набраны антиквой — выделяй их отдельно.' : 'latin_fragments всегда возвращай пустым массивом.'}
-3. ${latin ? 'Для латинских фрагментов: дай перевод + источник.' : ''}
+2. ${latin ? 'Латинские слова обычно набраны антиквой — выделяй их отдельно, давай перевод и источник.' : 'latin_fragments всегда возвращай пустым массивом.'}
+3. Разрядку (р а з р я д к а) записывай обычным словом, без пробелов между буквами.
 4. Каждый абзац оригинала — отдельный элемент массива.
 5. СНОСКИ ОБЯЗАТЕЛЬНЫ. Сноски в нижней части страницы (обозначены цифрами 1), 2), звёздочками * и т.п.) — переводи их полностью и включай в массив paragraphs как отдельные элементы. Не пропускай ни одну сноску.
 6. Отвечай ТОЛЬКО валидным JSON — без markdown, без преамбулы.
-
-{
-  "title": "заголовок на ${lang}, или пустая строка",
-  "paragraphs": ["перевод первого абзаца", "перевод второго абзаца"],
-${latin ? LATIN_FIELD : NO_LATIN_FIELD}
-}`;
+7. Все кавычки внутри строк JSON экранируй: \" — никогда не используй голые " внутри значения строки.
+${spread ? '8. Верни ровно два элемента в pages: сначала "left", затем "right".\n' : ''}
+${jsonSkeleton(latin, spread, 'заголовок на ' + lang + ', или пустая строка', '"перевод первого абзаца", "перевод второго абзаца"')}`;
 }
 
 function PROMPT_TEXT_MODERNIZE() {
@@ -1386,14 +1483,11 @@ Regeln:
 1. Modernisiere: ſ→s, veraltete Schreibweisen aktualisieren.
 2. Jeden Absatz separat im Array.
 3. FUßNOTEN PFLICHT. Fußnoten (markiert mit Ziffern 1), 2), Sternchen * usw.) vollständig modernisieren und als eigene Elemente aufnehmen.
-3. ${latin ? 'Lateinische Fragmente separat mit Übersetzung und Quelle.' : 'latin_fragments als leeres Array.'}
-4. Nur gültiges JSON — kein Markdown.
+4. Sperrsatz (g e s p e r r t e r  T e x t) — Leerzeichen zwischen Buchstaben entfernen.
+5. ${latin ? 'Lateinische Fragmente separat mit Übersetzung und Quelle.' : 'latin_fragments als leeres Array.'}
+6. Nur gültiges JSON — kein Markdown. Alle Anführungszeichen in Strings escapen: \"
 
-{
-  "title": "Seitentitel modernisiert, oder leerer String",
-  "paragraphs": ["erster Absatz", ...],
-${latin ? LATIN_FIELD : NO_LATIN_FIELD}
-}`;
+${jsonSkeleton(latin, false, 'Seitentitel modernisiert, oder leerer String', '"erster Absatz", "zweiter Absatz"')}`;
 }
 
 function PROMPT_TEXT_TRANSLATE(lang) {
@@ -1401,18 +1495,30 @@ function PROMPT_TEXT_TRANSLATE(lang) {
   return `Ты — специалист по немецкой юридической литературе XIX века.
 Получаешь OCR-текст страницы. Переведи на ${lang}.
 
-ПРАВИЛА:
+Правила:
 1. ВСЕ элементы массива paragraphs — ТОЛЬКО на ${lang}.
 2. title ОБЯЗАТЕЛЬНО переведи на ${lang}.
 3. ${latin ? 'Латинские слова выделяй отдельно с переводом и источником.' : 'latin_fragments всегда возвращай пустым массивом.'}
 4. Каждый абзац — отдельный элемент.
-5. СНОСКИ ОБЯЗАТЕЛЬНЫ. Сноски (цифры 1), 2), звёздочки * и т.п.) — переводи полностью, включай в paragraphs. Только JSON.
+5. СНОСКИ ОБЯЗАТЕЛЬНЫ. Сноски (цифры 1), 2), звёздочки * и т.п.) — переводи полностью, включай в paragraphs.
+6. Отвечай ТОЛЬКО валидным JSON — без markdown, без преамбулы. Все кавычки внутри строк экранируй: \"
 
-{
-  "title": "заголовок на ${lang}",
-  "paragraphs": ["..."],
-${latin ? LATIN_FIELD : NO_LATIN_FIELD}
-}`;
+${jsonSkeleton(latin, false, 'заголовок на ' + lang, '"перевод первого абзаца", "перевод второго абзаца"')}`;
+}
+
+// ── Result blocks ─────────────────────────────────────────────────────────────
+// A spread result carries two page objects in `pages`; a single page is one block.
+
+function resultBlocks(r) {
+  if (r && Array.isArray(r.pages) && r.pages.length) return r.pages;
+  return [r || {}];
+}
+
+function sideLabel(block, i) {
+  const side = block && (block.side === 'left' || block.side === 'right')
+    ? block.side
+    : (i === 0 ? 'left' : 'right');
+  return t(side === 'left' ? 'page_left' : 'page_right');
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -2061,6 +2167,7 @@ async function startServerBatch(pagesToProcess, total, progressFill, progressTex
     formData.append('lang', getTranslateLang());
     formData.append('model', getModel());
     formData.append('latin', document.getElementById('latin-toggle').checked ? '1' : '0');
+    formData.append('spread', spreadEnabled() ? '1' : '0');
 
     const jobResp = await fetch(`${WORKER_URL}/api/jobs`, {
       method: 'POST',
@@ -2287,12 +2394,13 @@ async function callClaude(b64, mediaType, _prompt) {
   const mode = getOutputMode();
   const lang = getTranslateLang();
   const latin = latinEnabled() ? 1 : 0;
+  const spread = spreadEnabled() ? 1 : 0;
 
   if (isHostedMode()) {
     const res = await fetch(`${WORKER_URL}/api/translate-image`, {
       method: 'POST',
       headers: hostedAuthHeaders(),
-      body: JSON.stringify({ image_b64: b64, media_type: mediaType, mode, lang, latin }),
+      body: JSON.stringify({ image_b64: b64, media_type: mediaType, mode, lang, latin, spread }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -2318,11 +2426,11 @@ async function callClaude(b64, mediaType, _prompt) {
     },
     body: JSON.stringify({
       model: getModel(),
-      max_tokens: 4000,
+      max_tokens: maxTokens(),
       system: prompt,
       messages: [{ role: 'user', content: [
         { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
-        { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' }
+        { type: 'text', text: userText() }
       ]}]
     }),
   });
@@ -2389,23 +2497,29 @@ function buildPdfHtml(pages, lang, docTitle) {
 </style>
 </head>
 <body>
-${pages.map(({ num, result: r }) => `
+${pages.map(({ num, result: r }) => {
+  const blocks = resultBlocks(r);
+  const isSpread = blocks.length > 1;
+  return `
 <div class="page-block">
   <div class="page-meta">
     <span>Gothic Reader · ${escHtml(lang)}</span>
     ${num != null ? `<span>Seite ${num}</span>` : ''}
   </div>
-  ${r.title ? `<h2>${escHtml(r.title)}</h2>` : ''}
-  ${(r.paragraphs || []).map(p => `<p>${escHtml(p)}</p>`).join('\n  ')}
-  ${r.latin_fragments?.length ? `
+  ${blocks.map((b, i) => `
+  ${isSpread ? `<div class="section-label">${escHtml(sideLabel(b, i))}</div>` : ''}
+  ${b.title ? `<h2>${escHtml(b.title)}</h2>` : ''}
+  ${(b.paragraphs || []).map(p => `<p>${escHtml(p)}</p>`).join('\n  ')}
+  ${b.latin_fragments?.length ? `
   <div class="section-label">Lateinische Fragmente</div>
-  ${r.latin_fragments.map(l => `
+  ${b.latin_fragments.map(l => `
   <div class="latin-block">
     <div class="orig">${escHtml(l.original)}</div>
     <div>${escHtml(l.translation)}</div>
     ${l.source ? `<div class="src">${escHtml(l.source)}</div>` : ''}
-  </div>`).join('')}` : ''}
-</div>`).join('\n')}
+  </div>`).join('')}` : ''}`).join('\n')}
+</div>`;
+}).join('\n')}
 </body>
 </html>`;
 }
@@ -2471,18 +2585,23 @@ function escHtml(s) {
 
 function render(r) {
   const trans = document.getElementById('translation');
+  const blocks = resultBlocks(r);
+  const isSpread = blocks.length > 1;
   let html = '';
-  if (r.title) html += `<h2 class="title-heading">${r.title}</h2>`;
-  if (r.paragraphs?.length) html += r.paragraphs.map(p => `<div class="para">${p}</div>`).join('');
-  if (r.latin_fragments?.length) {
-    html += `<div class="section-label">Lateinische Fragmente</div>`;
-    html += r.latin_fragments.map(l => `
+  blocks.forEach((b, i) => {
+    if (isSpread) html += `<div class="page-side-label">${sideLabel(b, i)}</div>`;
+    if (b.title) html += `<h2 class="title-heading">${b.title}</h2>`;
+    if (b.paragraphs?.length) html += b.paragraphs.map(p => `<div class="para">${p}</div>`).join('');
+    if (b.latin_fragments?.length) {
+      html += `<div class="section-label">Lateinische Fragmente</div>`;
+      html += b.latin_fragments.map(l => `
       <div class="latin-block">
         <div class="latin-original">${l.original}</div>
         <div class="latin-translation">${l.translation}</div>
         ${l.source ? `<div class="latin-source">${l.source}</div>` : ''}
       </div>`).join('');
-  }
+    }
+  });
   trans.innerHTML = html;
 }
 
@@ -2497,14 +2616,20 @@ function showTranslateError(err) {
 
 document.getElementById('copy-btn').addEventListener('click', () => {
   if (!lastResult) return;
-  let txt = lastResult.title ? lastResult.title + '\n\n' : '';
-  txt += (lastResult.paragraphs || []).join('\n\n');
-  if (lastResult.latin_fragments?.length) {
-    txt += '\n\n— Lateinische Fragmente —';
-    lastResult.latin_fragments.forEach(l => {
-      txt += `\n\n${l.original}\n→ ${l.translation}\n(${l.source})`;
-    });
-  }
+  const blocks = resultBlocks(lastResult);
+  const isSpread = blocks.length > 1;
+  const txt = blocks.map((b, i) => {
+    let part = isSpread ? `— ${sideLabel(b, i)} —\n\n` : '';
+    if (b.title) part += b.title + '\n\n';
+    part += (b.paragraphs || []).join('\n\n');
+    if (b.latin_fragments?.length) {
+      part += '\n\n— Lateinische Fragmente —';
+      b.latin_fragments.forEach(l => {
+        part += `\n\n${l.original}\n→ ${l.translation}\n(${l.source})`;
+      });
+    }
+    return part;
+  }).join('\n\n');
   navigator.clipboard.writeText(txt);
 });
 
@@ -2729,10 +2854,11 @@ async function translateUrlViaServer(imageUrl) {
   const mode  = getSecMode();
   const lang  = getSecLang();
   const latin = document.getElementById('latin-toggle')?.checked ? 1 : 0;
+  const spread = spreadEnabled() ? 1 : 0;
   const res = await fetch(`${WORKER_URL}/api/process-url`, {
     method: 'POST',
     headers: hostedAuthHeaders(),
-    body: JSON.stringify({ image_url: imageUrl, mode, lang, latin, model: getModel() }),
+    body: JSON.stringify({ image_url: imageUrl, mode, lang, latin, spread, model: getModel() }),
   });
   const data = await res.json();
   if (!res.ok) {
@@ -2791,13 +2917,13 @@ async function translateUrlDirect(imageUrl) {
     },
     body: JSON.stringify({
       model: getModel(),
-      max_tokens: 4000,
+      max_tokens: maxTokens(),
       system: prompt,
       messages: [{
         role: 'user',
         content: [
           { type: 'image', source: { type: 'url', url: imageUrl } },
-          { type: 'text', text: 'Lies die Seite. Jeden Absatz separat. Nur JSON.' }
+          { type: 'text', text: userText() }
         ]
       }]
     })
