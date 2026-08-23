@@ -113,42 +113,38 @@ npm start
 
 Боевой экземпляр живёт в `/var/www/fraktur`, слушает порт 3000, снаружи его закрывает nginx (`fraktur.app.nginx`). Ключи и путь к базе — в `.env` рядом с `server.js`.
 
-### Служба systemd
-
-Чтобы сайт поднимался сам после перезагрузки и падений, backend запускается юнитом `fraktur.service`:
-
-```bash
-cd /var/www/fraktur
-sed "s|^ExecStart=.*|ExecStart=$(command -v node) /var/www/fraktur/server.js|" \
-  fraktur.service > /etc/systemd/system/fraktur.service
-systemctl daemon-reload
-systemctl enable --now fraktur
-```
-
-`sed` подставляет реальный путь к node — он различается между системами (`/usr/bin/node`, сборка из nvm и т.д.).
-
-Если до этого backend был запущен вручную (`nohup node server.js &`), его нужно остановить до `enable --now`, иначе порт 3000 окажется занят:
-
-```bash
-kill $(ss -ltnp | grep -oP ':3000.*pid=\K[0-9]+' | head -1)
-```
+Процессом управляет **pm2**, приложение зарегистрировано в нём под именем `gothic-reader`.
 
 ### Обновление
 
 ```bash
 cd /var/www/fraktur
 git pull origin main
-systemctl restart fraktur
+pm2 restart gothic-reader
 ```
 
 `index.html` отдаётся с диска и обновляется сразу после `git pull`, а изменения в `server.js` подхватываются только при перезапуске. Миграции базы выполняются при старте автоматически.
 
+### Автозапуск после перезагрузки
+
+Демон pm2, запущенный вручную из SSH, перезагрузку не переживает — его нужно один раз прописать в systemd:
+
+```bash
+pm2 startup systemd     # создаёт и включает pm2-root.service
+pm2 save                # запоминает список процессов для восстановления
+```
+
+Проверить, что автозапуск на месте: `systemctl is-enabled pm2-root` должно ответить `enabled`.
+
+Второй сторож (собственный юнит systemd для `server.js`) при этом не нужен и вреден: два супервизора будут драться за порт 3000, и один из них уйдёт в цикл падений с `EADDRINUSE`.
+
 ### Диагностика
 
 ```bash
-systemctl status fraktur        # состояние
-journalctl -u fraktur -f        # логи в реальном времени
-journalctl -u fraktur -n 100    # последние 100 строк
+pm2 ls                       # состояние и счётчик перезапусков
+pm2 logs gothic-reader       # логи в реальном времени
+pm2 logs gothic-reader --lines 100
+ss -ltnp | grep :3000        # кто на самом деле держит порт
 ```
 
 ---
