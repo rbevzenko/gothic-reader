@@ -320,10 +320,37 @@ app.get('/api/projects/:id/pages',          requireAuth, getProjectPages);
 app.delete('/api/projects/:id/pages/:num',  requireAuth, deleteProjectPage);
 
 // Jobs (server-side processing queue)
-const upload = multer({ dest: os.tmpdir(), limits: { fileSize: 100 * 1024 * 1024 } });
-app.post('/api/jobs',           requireAuth, upload.single('pdf'), createJob);
+const MAX_PDF_BYTES  = (parseInt(process.env.MAX_PDF_MB)   || 500) * 1024 * 1024;
+const MAX_CHUNK_BYTES = (parseInt(process.env.MAX_CHUNK_MB) || 16)  * 1024 * 1024;
+
+const upload = multer({ dest: os.tmpdir(), limits: { fileSize: MAX_PDF_BYTES } });
+
+// Single-request multipart upload. Big books normally go through the chunked
+// endpoints below, because a reverse proxy usually caps the request body.
+function uploadPdf(req, res, next) {
+  upload.single('pdf')(req, res, err => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ error: 'pdf_too_large', max_mb: Math.round(MAX_PDF_BYTES / 1024 / 1024) });
+    }
+    return res.status(400).json({ error: err.message || 'upload_failed' });
+  });
+}
+
+app.get('/api/limits', (req, res) => res.json({
+  max_pdf_mb:   Math.round(MAX_PDF_BYTES / 1024 / 1024),
+  max_chunk_mb: Math.round(MAX_CHUNK_BYTES / 1024 / 1024),
+}));
+
+app.post('/api/uploads',             requireAuth, initUpload);
+app.post('/api/uploads/:id/chunk',   requireAuth,
+  express.raw({ type: () => true, limit: MAX_CHUNK_BYTES }), appendUploadChunk);
+app.delete('/api/uploads/:id',       requireAuth, abortUpload);
+
+app.post('/api/jobs',           requireAuth, uploadPdf, createJob);
 app.get('/api/jobs/:id',        requireAuth, getJob);
 app.delete('/api/jobs/:id',     requireAuth, cancelJob);
+app.post('/api/jobs/:id/images', requireAuth, saveJobPageImage);
 
 // ── Admin routes ──────────────────────────────────────────────────────────────
 
@@ -340,6 +367,16 @@ app.post('/admin/api/settings',adminAuth, adminSaveSettings);
 // Account page
 app.get('/account', (req, res) => res.sendFile(path.join(__dirname, 'account.html')));
 app.get('/about',   (req, res) => res.sendFile(path.join(__dirname, 'about.html')));
+
+// API fallbacks — /api answers must always be JSON, never the HTML page below
+app.use('/api', (req, res) => res.status(404).json({ error: 'not_found', path: req.path }));
+app.use('/api', (err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  const tooLarge = err.status === 413 || err.type === 'entity.too.large' || err.code === 'LIMIT_FILE_SIZE';
+  console.error('API error:', req.method, req.path, err.message);
+  res.status(tooLarge ? 413 : (err.status || 500))
+     .json({ error: tooLarge ? 'payload_too_large' : (err.message || 'server_error') });
+});
 
 // Frontend
 app.use(express.static(__dirname));
@@ -538,6 +575,91 @@ function deleteProjectPage(req, res) {
   res.json({ ok: true });
 }
 
+// ── Chunked PDF upload ────────────────────────────────────────────────────────
+//
+// Whole-book scans are hundreds of megabytes, and a single POST of that size is
+// rejected by the reverse proxy (nginx answers with an HTML 413 page, which the
+// browser then fails to parse as JSON). So the PDF is sent in small chunks that
+// fit into any proxy body limit, and the job refers to the assembled file.
+
+const UPLOAD_DIR = path.join(os.tmpdir(), 'gothic-reader-uploads');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const uploads = new Map(); // upload_id → { uid, path, bytes, total, updated }
+const UPLOAD_TTL_MS = 6 * 60 * 60 * 1000;
+
+function initUpload(req, res) {
+  const total = parseInt(req.body?.size) || 0;
+  if (total > MAX_PDF_BYTES) {
+    return res.status(413).json({ error: 'pdf_too_large', max_mb: Math.round(MAX_PDF_BYTES / 1024 / 1024) });
+  }
+  const id = crypto.randomBytes(16).toString('hex');
+  const filePath = path.join(UPLOAD_DIR, id + '.pdf');
+  fs.writeFileSync(filePath, '');
+  uploads.set(id, { uid: req.uid, path: filePath, bytes: 0, total, updated: Date.now() });
+  res.json({ upload_id: id, max_chunk_mb: Math.round(MAX_CHUNK_BYTES / 1024 / 1024) });
+}
+
+function appendUploadChunk(req, res) {
+  const up = uploads.get(req.params.id);
+  if (!up || up.uid !== req.uid) return res.status(404).json({ error: 'upload_not_found' });
+
+  const chunk = Buffer.isBuffer(req.body) ? req.body : null;
+  if (!chunk || !chunk.length) return res.status(400).json({ error: 'empty_chunk' });
+
+  if (up.bytes + chunk.length > MAX_PDF_BYTES) {
+    discardUpload(req.params.id);
+    return res.status(413).json({ error: 'pdf_too_large', max_mb: Math.round(MAX_PDF_BYTES / 1024 / 1024) });
+  }
+
+  // Chunks are sent strictly in order; offset guards against a duplicate retry.
+  const offset = parseInt(req.query.offset);
+  if (Number.isFinite(offset) && offset !== up.bytes) {
+    return res.status(409).json({ error: 'offset_mismatch', expected: up.bytes });
+  }
+
+  try {
+    fs.appendFileSync(up.path, chunk);
+  } catch (err) {
+    discardUpload(req.params.id);
+    return res.status(500).json({ error: 'write_failed' });
+  }
+  up.bytes += chunk.length;
+  up.updated = Date.now();
+  res.json({ received: up.bytes });
+}
+
+function abortUpload(req, res) {
+  const up = uploads.get(req.params.id);
+  if (!up || up.uid !== req.uid) return res.status(404).json({ error: 'upload_not_found' });
+  discardUpload(req.params.id);
+  res.json({ ok: true });
+}
+
+function discardUpload(id) {
+  const up = uploads.get(id);
+  if (!up) return;
+  try { fs.unlinkSync(up.path); } catch {}
+  uploads.delete(id);
+}
+
+// Drop abandoned uploads (tab closed mid-upload, job never created)
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, up] of uploads) {
+    if (now - up.updated > UPLOAD_TTL_MS) discardUpload(id);
+  }
+  // Also sweep files left behind by a previous process
+  try {
+    for (const f of fs.readdirSync(UPLOAD_DIR)) {
+      const p = path.join(UPLOAD_DIR, f);
+      try {
+        if (now - fs.statSync(p).mtimeMs > UPLOAD_TTL_MS) fs.unlinkSync(p);
+      } catch {}
+    }
+  } catch {}
+}, 30 * 60 * 1000).unref?.();
+
 // ── Job handlers ──────────────────────────────────────────────────────────────
 
 function createJob(req, res) {
@@ -545,26 +667,38 @@ function createJob(req, res) {
   try {
     pages = typeof req.body.pages === 'string' ? JSON.parse(req.body.pages) : req.body.pages;
   } catch { pages = null; }
-  const { project_id, mode, lang, model } = req.body;
+  const { project_id, mode, lang, model, upload_id } = req.body;
   const latin = req.body.latin === '1' || req.body.latin === 1 || req.body.latin === true;
 
+  // The PDF arrives either as one multipart file (small books) or as a
+  // previously assembled chunked upload (everything that a proxy would reject).
+  let pdfPath = req.file ? req.file.path : null;
+  if (!pdfPath && upload_id) {
+    const up = uploads.get(upload_id);
+    if (!up || up.uid !== req.uid) return res.status(400).json({ error: 'upload_not_found' });
+    if (!up.bytes) { discardUpload(upload_id); return res.status(400).json({ error: 'upload_empty' }); }
+    pdfPath = up.path;
+    uploads.delete(upload_id); // ownership moves to the job, which unlinks it when done
+  }
+  const cleanup = () => { if (pdfPath) try { fs.unlinkSync(pdfPath); } catch {} };
+
   if (!project_id || !pages || !Array.isArray(pages) || pages.length === 0) {
-    if (req.file) fs.unlinkSync(req.file.path);
+    cleanup();
     return res.status(400).json({ error: 'project_id and pages[] required' });
   }
-  if (!req.file) {
+  if (!pdfPath) {
     return res.status(400).json({ error: 'PDF file required' });
   }
 
   const project = db.prepare(`SELECT * FROM projects WHERE id = ? AND uid = ?`).get(project_id, req.uid);
   if (!project) {
-    fs.unlinkSync(req.file.path);
+    cleanup();
     return res.status(404).json({ error: 'Project not found' });
   }
 
   const credits = fetchBalance(req.uid);
   if (credits < pages.length) {
-    fs.unlinkSync(req.file.path);
+    cleanup();
     return res.status(402).json({ error: 'no_credits' });
   }
 
@@ -572,7 +706,7 @@ function createJob(req, res) {
     INSERT INTO jobs (uid, project_id, pages, mode, lang, model, latin, pages_total, pdf_path)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(req.uid, project_id, JSON.stringify(pages), mode || 'modernize', lang || 'русский',
-         model || 'claude-haiku-4-5-20251001', latin ? 1 : 0, pages.length, req.file.path);
+         model || 'claude-haiku-4-5-20251001', latin ? 1 : 0, pages.length, pdfPath);
 
   res.json({ job_id: result.lastInsertRowid });
 }
@@ -596,6 +730,16 @@ function getJob(req, res) {
   });
 }
 
+function saveJobPageImage(req, res) {
+  const job = db.prepare(`SELECT * FROM jobs WHERE id = ? AND uid = ?`).get(req.params.id, req.uid);
+  if (!job) return res.status(404).json({ error: 'Not found' });
+  const { page_num, image_data } = req.body;
+  if (!page_num || !image_data) return res.status(400).json({ error: 'page_num and image_data required' });
+  db.prepare(`INSERT OR REPLACE INTO job_page_images (job_id, page_num, image_data) VALUES (?, ?, ?)`)
+    .run(job.id, page_num, image_data);
+  res.json({ ok: true });
+}
+
 function cancelJob(req, res) {
   const job = db.prepare(`SELECT * FROM jobs WHERE id = ? AND uid = ?`).get(req.params.id, req.uid);
   if (!job) return res.status(404).json({ error: 'Not found' });
@@ -604,18 +748,6 @@ function cancelJob(req, res) {
   }
   res.json({ ok: true });
 }
-
-// ── Job image upload ──────────────────────────────────────────────────────────
-
-app.post('/api/jobs/:id/images', requireAuth, (req, res) => {
-  const job = db.prepare(`SELECT * FROM jobs WHERE id = ? AND uid = ?`).get(req.params.id, req.uid);
-  if (!job) return res.status(404).json({ error: 'Not found' });
-  const { page_num, image_data } = req.body;
-  if (!page_num || !image_data) return res.status(400).json({ error: 'page_num and image_data required' });
-  db.prepare(`INSERT OR REPLACE INTO job_page_images (job_id, page_num, image_data) VALUES (?, ?, ?)`)
-    .run(job.id, page_num, image_data);
-  res.json({ ok: true });
-});
 
 // ── Prompts ───────────────────────────────────────────────────────────────────
 

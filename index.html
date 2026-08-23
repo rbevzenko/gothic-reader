@@ -1043,6 +1043,12 @@ const TRANSLATIONS = {
     eta_avg: '· {s}/page avg',
     batch_cancelled: 'Cancelled',
     batch_done: '{d} / {t} done',
+    uploading_pdf: 'Uploading PDF… {pct}%',
+    err_pdf_too_large: 'The PDF is too large to upload to the server',
+    err_session_expired: 'Session expired — please sign in again.',
+    err_not_json: 'The server returned a non-JSON response (HTTP {s})',
+    err_http: 'Request failed (HTTP {s})',
+    error_no_credits: 'No pages left on your balance. Please buy more.',
     loading_url: 'Loading…',
     loading_ocr: 'Processing OCR text…',
     screenshot_taking: 'Taking screenshot…',
@@ -1116,6 +1122,12 @@ const TRANSLATIONS = {
     eta_avg: '· {s}/Seite ø',
     batch_cancelled: 'Abgebrochen',
     batch_done: '{d} / {t} fertig',
+    uploading_pdf: 'PDF wird hochgeladen… {pct}%',
+    err_pdf_too_large: 'Die PDF-Datei ist zu groß für den Upload zum Server',
+    err_session_expired: 'Sitzung abgelaufen — bitte erneut anmelden.',
+    err_not_json: 'Der Server hat keine JSON-Antwort geliefert (HTTP {s})',
+    err_http: 'Anfrage fehlgeschlagen (HTTP {s})',
+    error_no_credits: 'Keine Seiten mehr auf dem Guthaben. Bitte nachkaufen.',
     loading_url: 'Lade…',
     loading_ocr: 'Verarbeite OCR-Text…',
     screenshot_taking: 'Erstelle Screenshot…',
@@ -1189,6 +1201,12 @@ const TRANSLATIONS = {
     eta_avg: '· {s}/стр.',
     batch_cancelled: 'Отменено',
     batch_done: '{d} / {t} готово',
+    uploading_pdf: 'Загружаю PDF… {pct}%',
+    err_pdf_too_large: 'PDF слишком большой для загрузки на сервер',
+    err_session_expired: 'Сессия истекла — войдите заново.',
+    err_not_json: 'Сервер вернул ответ не в формате JSON (HTTP {s})',
+    err_http: 'Запрос не выполнен (HTTP {s})',
+    error_no_credits: 'На балансе не осталось страниц. Пополните баланс.',
     loading_url: 'Загружаю…',
     loading_ocr: 'Обрабатываю OCR-текст…',
     screenshot_taking: 'Делаю скриншот…',
@@ -1262,6 +1280,12 @@ const TRANSLATIONS = {
     eta_avg: '· {s}/page moy.',
     batch_cancelled: 'Annulé',
     batch_done: '{d} / {t} terminé',
+    uploading_pdf: 'Envoi du PDF… {pct}%',
+    err_pdf_too_large: "Le PDF est trop volumineux pour être envoyé au serveur",
+    err_session_expired: 'Session expirée — veuillez vous reconnecter.',
+    err_not_json: 'Le serveur a renvoyé une réponse non JSON (HTTP {s})',
+    err_http: 'Échec de la requête (HTTP {s})',
+    error_no_credits: 'Plus de pages sur votre solde. Veuillez en acheter.',
     loading_url: 'Chargement…',
     loading_ocr: 'Traitement du texte OCR…',
     screenshot_taking: "Capture d'écran…",
@@ -2044,17 +2068,102 @@ function formatEta(seconds) {
   return m > 0 ? t('eta_hr_m', { h, m }) : t('eta_hr', { h });
 }
 
+// A server that answers with an HTML page (proxy 413/502, error page) used to
+// surface as «Unexpected token '<'» — read the body once and explain it instead.
+async function readJson(resp) {
+  const text = await resp.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch {}
+  if (data && typeof data === 'object' && resp.ok) return data;
+
+  const err = new Error(resp.ok
+    ? t('err_not_json', { s: resp.status })
+    : uploadErrorText(resp.status, data?.error, data));
+  err.status = resp.status;
+  err.data = data;
+  throw err;
+}
+
+function uploadErrorText(status, code, data) {
+  if (status === 413 || code === 'pdf_too_large' || code === 'payload_too_large') {
+    const mb = data?.max_mb;
+    return t('err_pdf_too_large') + (mb ? ` (${mb} MB)` : '');
+  }
+  if (status === 401) return t('err_session_expired');
+  if (status === 402 || code === 'no_credits') return t('error_no_credits');
+  if (code) return code;
+  return t('err_http', { s: status });
+}
+
+// Send the PDF in small chunks so the request body never hits a proxy limit.
+const UPLOAD_CHUNK_BYTES = 4 * 1024 * 1024;
+
+async function uploadPdfChunked(file, onProgress) {
+  const init = await readJson(await fetch(`${WORKER_URL}/api/uploads`, {
+    method: 'POST',
+    headers: hostedAuthHeaders(),
+    body: JSON.stringify({ size: file.size, name: file.name }),
+  }));
+
+  const upload_id = init.upload_id;
+  const chunkSize = Math.min(UPLOAD_CHUNK_BYTES, (init.max_chunk_mb || 16) * 1024 * 1024);
+  const chunkHeaders = { ...hostedAuthHeaders(), 'Content-Type': 'application/octet-stream' };
+
+  const abort = () => fetch(`${WORKER_URL}/api/uploads/${upload_id}`,
+    { method: 'DELETE', headers: hostedAuthHeaders() }).catch(() => {});
+
+  for (let offset = 0; offset < file.size; offset += chunkSize) {
+    if (batchCancelled) { abort(); throw new Error(t('batch_cancelled')); }
+    const blob = file.slice(offset, Math.min(offset + chunkSize, file.size));
+    let lastErr = null;
+    let ok = false;
+    for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 1000 * attempt));
+      try {
+        await readJson(await fetch(`${WORKER_URL}/api/uploads/${upload_id}/chunk?offset=${offset}`, {
+          method: 'POST',
+          headers: chunkHeaders,
+          body: blob,
+        }));
+        ok = true;
+      } catch (err) {
+        lastErr = err;
+        // A retry after a lost response: the chunk is already stored server-side.
+        if (err.data?.error === 'offset_mismatch' && err.data.expected === offset + blob.size) ok = true;
+        // Nothing to gain from retrying a rejected upload.
+        else if (err.status === 401 || err.status === 413 || err.data?.error === 'upload_not_found') break;
+      }
+    }
+    if (!ok) { abort(); throw lastErr; }
+    onProgress?.(Math.min(offset + chunkSize, file.size), file.size);
+  }
+  return upload_id;
+}
+
 async function startServerBatch(pagesToProcess, total, progressFill, progressText, progressEta, processBtn) {
   const cancelBtn = document.getElementById('cancel-btn');
+  let done = 0;
 
   try {
     progressText.textContent = `0 / ${total}`;
-    progressEta.textContent = 'Uploading PDF…';
+    progressEta.textContent = t('uploading_pdf', { pct: 0 });
 
-    // Upload PDF + job params as multipart form
     const token = getSessionToken();
     const formData = new FormData();
-    formData.append('pdf', currentPdfFile);
+
+    // Small files go in the same request; anything larger is uploaded in chunks
+    // first, because a single huge POST is rejected by the reverse proxy.
+    if (currentPdfFile.size > UPLOAD_CHUNK_BYTES) {
+      const upload_id = await uploadPdfChunked(currentPdfFile, (sent, totalBytes) => {
+        const pct = Math.round(sent / totalBytes * 100);
+        progressEta.textContent = t('uploading_pdf', { pct });
+        progressFill.style.width = `${pct * 0.05}%`;
+      });
+      formData.append('upload_id', upload_id);
+    } else {
+      formData.append('pdf', currentPdfFile);
+    }
+
     formData.append('project_id', String(currentProjectId));
     formData.append('pages', JSON.stringify(pagesToProcess));
     formData.append('mode', getOutputMode());
@@ -2067,7 +2176,7 @@ async function startServerBatch(pagesToProcess, total, progressFill, progressTex
       headers: { 'Authorization': 'Bearer ' + token },
       body: formData,
     });
-    const jobData = await jobResp.json();
+    const jobData = await readJson(jobResp);
     if (!jobData.job_id) throw new Error(jobData.error || 'Failed to create job');
     const job_id = jobData.job_id;
 
@@ -2083,12 +2192,22 @@ async function startServerBatch(pagesToProcess, total, progressFill, progressTex
 
     // Poll for results
     const seen = new Set();
+    let pollErrors = 0;
     while (!cancelled) {
       await new Promise(r => setTimeout(r, 3000));
       if (batchCancelled || cancelled) break;
 
-      const r = await fetch(`${WORKER_URL}/api/jobs/${job_id}`, { headers: hostedAuthHeaders() });
-      const job = await r.json();
+      // A hiccup in the network or a proxy error page must not kill the batch —
+      // the job keeps running on the server, so just poll again.
+      let job;
+      try {
+        job = await readJson(
+          await fetch(`${WORKER_URL}/api/jobs/${job_id}`, { headers: hostedAuthHeaders() }));
+        pollErrors = 0;
+      } catch (err) {
+        if (++pollErrors >= 20) throw err;
+        continue;
+      }
 
       // Show newly completed pages
       for (const p of (job.completed_pages || [])) {
