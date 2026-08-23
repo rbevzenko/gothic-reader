@@ -1608,7 +1608,7 @@ let screenshotServerAvailable = false;
 // ── Hosted mode (paid credits) ────────────────────────────────────────────────
 // Set WORKER_URL to your Cloudflare Worker URL to enable the hosted/paid mode.
 // Leave empty to use only the bring-your-own-key mode.
-const WORKER_URL = '';
+const WORKER_URL = 'https://fraktur.app';
 
 const CREDITS_KEY = 'gothic_reader_uid';
 const TOKEN_KEY   = 'fraktur_token';
@@ -1629,7 +1629,7 @@ function getOrCreateUid() {
 function isHostedMode() {
   // If logged in with session token, always use hosted mode (ignore any stored API key)
   if (WORKER_URL && getSessionToken()) return true;
-  return false;
+  return !!WORKER_URL && !getApiKey();
 }
 
 function hostedAuthHeaders() {
