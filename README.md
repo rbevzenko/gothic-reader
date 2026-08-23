@@ -109,6 +109,50 @@ npm start
 
 ---
 
+## Развёртывание на сервере
+
+Боевой экземпляр живёт в `/var/www/fraktur`, слушает порт 3000, снаружи его закрывает nginx (`fraktur.app.nginx`). Ключи и путь к базе — в `.env` рядом с `server.js`.
+
+### Служба systemd
+
+Чтобы сайт поднимался сам после перезагрузки и падений, backend запускается юнитом `fraktur.service`:
+
+```bash
+cd /var/www/fraktur
+sed "s|^ExecStart=.*|ExecStart=$(command -v node) /var/www/fraktur/server.js|" \
+  fraktur.service > /etc/systemd/system/fraktur.service
+systemctl daemon-reload
+systemctl enable --now fraktur
+```
+
+`sed` подставляет реальный путь к node — он различается между системами (`/usr/bin/node`, сборка из nvm и т.д.).
+
+Если до этого backend был запущен вручную (`nohup node server.js &`), его нужно остановить до `enable --now`, иначе порт 3000 окажется занят:
+
+```bash
+kill $(ss -ltnp | grep -oP ':3000.*pid=\K[0-9]+' | head -1)
+```
+
+### Обновление
+
+```bash
+cd /var/www/fraktur
+git pull origin main
+systemctl restart fraktur
+```
+
+`index.html` отдаётся с диска и обновляется сразу после `git pull`, а изменения в `server.js` подхватываются только при перезапуске. Миграции базы выполняются при старте автоматически.
+
+### Диагностика
+
+```bash
+systemctl status fraktur        # состояние
+journalctl -u fraktur -f        # логи в реальном времени
+journalctl -u fraktur -n 100    # последние 100 строк
+```
+
+---
+
 ## Ограничения
 
 - Работает лучше всего с PDF хорошего качества (300+ DPI)
