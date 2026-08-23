@@ -1523,7 +1523,7 @@ function getOrCreateUid() {
 function isHostedMode() {
   // If logged in with session token, always use hosted mode (ignore any stored API key)
   if (WORKER_URL && getSessionToken()) return true;
-  return !!WORKER_URL && !getApiKey();
+  return false;
 }
 
 function hostedAuthHeaders() {
